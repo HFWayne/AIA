@@ -21,6 +21,11 @@ python main.py --compare --funds 600036,000001 --start 2022-01-01 --end 2024-12-
 python main.py --fund 600036 --source tushare
 ```
 
+### 运行 Web UI (Streamlit)
+```bash
+streamlit run app.py
+```
+
 ### 测试
 ```bash
 # 运行 pytest（如果存在测试）
@@ -180,6 +185,7 @@ project/
 │   └── visualization.py
 ├── tests/               # 单元测试（如果有）
 ├── main.py             # 命令行入口
+├── app.py              # Streamlit Web UI
 └── AGENTS.md           # 本文件
 ```
 

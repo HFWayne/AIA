@@ -30,7 +30,7 @@ class BacktestVisualizer:
         trades = result.trades.copy()
         trades['date'] = pd.to_datetime(trades['date'])
         
-        grid = fig.add_gridspec(3, 2, hspace=0.3, wspace=0.25)
+        grid = fig.add_gridspec(2, 2, hspace=0.3, wspace=0.25)
         
         ax1 = fig.add_subplot(grid[0, 0])
         ax1.plot(trades['date'], trades['total_invested'], label='累计投入', color='blue', linewidth=2)
@@ -43,7 +43,7 @@ class BacktestVisualizer:
                          alpha=0.3, color='red', label='亏损')
         ax1.set_title('投入与收益曲线', fontsize=12)
         ax1.set_xlabel('日期')
-        ax1.set_ylabel('金额')
+        ax1.set_ylabel('金额(元)')
         ax1.legend(loc='upper left')
         ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
         ax1.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
@@ -69,7 +69,7 @@ class BacktestVisualizer:
         ax3.plot(result.nav_data['date'], result.nav_data['nav'], color='orange', linewidth=1.5)
         ax3.set_title(f'{title} 净值走势', fontsize=12)
         ax3.set_xlabel('日期')
-        ax3.set_ylabel('价格')
+        ax3.set_ylabel('价格(元)')
         ax3.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
         ax3.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
         plt.setp(ax3.xaxis.get_majorticklabels(), rotation=45)
@@ -82,25 +82,6 @@ class BacktestVisualizer:
         else:
             ax4.text(0.5, 0.5, 'K线数据不可用\n(仅支持股票代码)', ha='center', va='center', fontsize=12)
             ax4.axis('off')
-        
-        stats_text = f"""回测统计
-    
-起始日期: {trades['date'].iloc[0].strftime('%Y-%m-%d')}
-结束日期: {trades['date'].iloc[-1].strftime('%Y-%m-%d')}
-定投次数: {result.investment_count}
-总投入金额: {result.total_invested:,.2f}
-最终资产: {result.final_value:,.2f}
-总收益: {result.total_return:+,.2f}
-总收益率: {result.return_rate:+.2f}%
-年化收益率: {result.annual_return:+.2f}%
-最大回撤: {result.max_drawdown:.2f}%"""
-        
-        ax5 = fig.add_subplot(grid[2, :])
-        ax5.text(0.5, 0.5, stats_text, fontsize=12, ha='center', va='center',
-                transform=ax5.transAxes,
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5),
-                family='sans-serif')
-        ax5.axis('off')
         
         fig.suptitle(f'定投回测分析 - {title}', fontsize=14, fontweight='bold')
         
@@ -148,7 +129,7 @@ class BacktestVisualizer:
             plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
             ax.grid(True, alpha=0.3)
             ax.set_xlabel('日期')
-            ax.set_ylabel('价格')
+            ax.set_ylabel('价格(元)')
         except Exception as e:
             ax.text(0.5, 0.5, f'K线绘制失败: {str(e)}', ha='center', va='center')
             ax.axis('off')
@@ -167,9 +148,9 @@ class BacktestVisualizer:
         ax1 = axes[0]
         bars1 = ax1.bar(x - width/2, invested, width, label='总投入', color='steelblue')
         bars2 = ax1.bar(x + width/2, final_values, width, label='最终价值', color='seagreen')
-        ax1.set_xlabel('基金')
-        ax1.set_ylabel('金额 (元)')
-        ax1.set_title('各基金投入与收益对比')
+        ax1.set_xlabel('股票')
+        ax1.set_ylabel('金额(元)')
+        ax1.set_title('各股票投入与收益对比')
         ax1.set_xticks(x)
         ax1.set_xticklabels(names, rotation=45, ha='right')
         ax1.legend()
@@ -186,9 +167,9 @@ class BacktestVisualizer:
         ax2 = axes[1]
         bars = ax2.bar(names, return_rates, color=colors, alpha=0.7)
         ax2.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
-        ax2.set_xlabel('基金')
-        ax2.set_ylabel('收益率 (%)')
-        ax2.set_title('各基金收益率对比')
+        ax2.set_xlabel('股票')
+        ax2.set_ylabel('收益率(%)')
+        ax2.set_title('各股票收益率对比')
         plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha='right')
         
         for bar, rate in zip(bars, return_rates):
@@ -198,7 +179,7 @@ class BacktestVisualizer:
                         xytext=(0, 3 if height >= 0 else -12), textcoords="offset points",
                         ha='center', va='bottom' if height >= 0 else 'top', fontsize=9)
         
-        fig.suptitle('基金组合定投回测分析', fontsize=14, fontweight='bold')
+        fig.suptitle('股票组合定投回测分析', fontsize=14, fontweight='bold')
         plt.tight_layout()
         
         if save_path:
@@ -223,7 +204,7 @@ class BacktestVisualizer:
                     label=name, color=colors[i], linewidth=1.5)
         ax1.set_title('资产总值对比')
         ax1.set_xlabel('日期')
-        ax1.set_ylabel('金额 (元)')
+        ax1.set_ylabel('金额(元)')
         ax1.legend()
         ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
         plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45)
@@ -237,7 +218,7 @@ class BacktestVisualizer:
         ax2.axhline(y=0, color='black', linestyle='--', alpha=0.5)
         ax2.set_title('收益率对比')
         ax2.set_xlabel('日期')
-        ax2.set_ylabel('收益率 (%)')
+        ax2.set_ylabel('收益率(%)')
         ax2.legend()
         ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
         plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45)
@@ -251,8 +232,8 @@ class BacktestVisualizer:
         ax3 = axes[1, 0]
         ax3.bar(x - width/2, return_rates, width, label='总收益率', color='steelblue')
         ax3.bar(x + width/2, annual_returns, width, label='年化收益率', color='coral')
-        ax3.set_xlabel('基金')
-        ax3.set_ylabel('收益率 (%)')
+        ax3.set_xlabel('股票')
+        ax3.set_ylabel('收益率(%)')
         ax3.set_title('收益对比')
         ax3.set_xticks(x)
         ax3.set_xticklabels(names, rotation=45, ha='right')
@@ -262,12 +243,12 @@ class BacktestVisualizer:
         
         ax4 = axes[1, 1]
         ax4.barh(names, max_drawdowns, color='indianred', alpha=0.7)
-        ax4.set_xlabel('最大回撤 (%)')
+        ax4.set_xlabel('最大回撤(%)')
         ax4.set_title('最大回撤对比')
         for i, v in enumerate(max_drawdowns):
             ax4.text(v + 0.5, i, f'{v:.2f}%', va='center')
         
-        fig.suptitle('多基金定投对比分析', fontsize=14, fontweight='bold')
+        fig.suptitle('多股票定投对比分析', fontsize=14, fontweight='bold')
         plt.tight_layout()
         
         if save_path:
