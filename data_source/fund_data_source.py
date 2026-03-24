@@ -5,8 +5,9 @@ import pandas as pd
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 import logging
+import time
 
-from data_source.config import DATA_SOURCE, TU_SHARE_TOKEN
+from data_source.config import DATA_SOURCE, TU_SHARE_TOKEN, REQUEST_DELAY, MAX_RETRIES
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -17,7 +18,14 @@ class FundDataSource:
     
     def __init__(self, preferred_source: str = None):
         self.current_source = preferred_source or DATA_SOURCE
+        self.request_delay = REQUEST_DELAY
+        self.max_retries = MAX_RETRIES
         self._init_tushare()
+    
+    def _apply_delay(self):
+        """请求延时，防止触发频率限制"""
+        if self.request_delay > 0:
+            time.sleep(self.request_delay)
     
     def _init_tushare(self):
         """初始化tushare"""
@@ -71,51 +79,58 @@ class FundDataSource:
         if self.pro is None:
             return None
         
-        try:
-            df = self.pro.fund_nav(ts_code=f"{fund_code}.OF", start_date=start_date, end_date=end_date)
-            if df is not None and not df.empty:
-                df = df.rename(columns={
-                    'nav_date': 'date',
-                    'nav': 'nav',
-                    'accum_nav': 'accum_nav',
-                    'fund_name': 'name'
-                })
-                df = df[['date', 'nav', 'accum_nav', 'name']].sort_values('date')
-                return df
-        except Exception as e:
-            logger.warning(f"Tushare fund_nav error: {e}")
-        
-        try:
-            for exchange in ['SH', 'SZ']:
-                logger.info(f"Trying tushare daily {fund_code}.{exchange}")
-                df = self.pro.daily(ts_code=f"{fund_code}.{exchange}", start_date=start_date, end_date=end_date)
-                
+        for retry in range(self.max_retries):
+            try:
+                self._apply_delay()
+                df = self.pro.fund_nav(ts_code=f"{fund_code}.OF", start_date=start_date, end_date=end_date)
                 if df is not None and not df.empty:
                     df = df.rename(columns={
-                        'trade_date': 'date',
-                        'close': 'nav'
+                        'nav_date': 'date',
+                        'nav': 'nav',
+                        'accum_nav': 'accum_nav',
+                        'fund_name': 'name'
                     })
-                    df = df[['date', 'open', 'high', 'low', 'nav']].sort_values('date')
-                    df['accum_nav'] = df['nav']
+                    df = df[['date', 'nav', 'accum_nav', 'name']].sort_values('date')
                     return df
-        except Exception as e:
-            logger.warning(f"Tushare daily error: {e}")
+            except Exception as e:
+                logger.warning(f"Tushare fund_nav error (retry {retry+1}): {e}")
+                if retry < self.max_retries - 1:
+                    time.sleep(1)
+        
+        for retry in range(self.max_retries):
+            for exchange in ['SH', 'SZ']:
+                try:
+                    self._apply_delay()
+                    logger.info(f"Trying tushare daily {fund_code}.{exchange}")
+                    df = self.pro.daily(ts_code=f"{fund_code}.{exchange}", start_date=start_date, end_date=end_date)
+                    
+                    if df is not None and not df.empty:
+                        df = df.rename(columns={
+                            'trade_date': 'date',
+                            'close': 'nav'
+                        })
+                        df = df[['date', 'open', 'high', 'low', 'nav']].sort_values('date')
+                        df['accum_nav'] = df['nav']
+                        return df
+                except Exception as e:
+                    logger.warning(f"Tushare daily error (retry {retry+1}): {e}")
+                    if retry < self.max_retries - 1:
+                        time.sleep(1)
         
         return None
     
     def _get_fund_from_akshare(self, fund_code: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
         """从akshare获取基金数据（使用新浪接口）"""
-        import time
-        
         funcs_to_try = [
             ('stock_zh_a_hist_sina', {'symbol': fund_code}),
             ('fund_etf_hist_sina', {'symbol': fund_code}),
             ('fund_etf_hist_em', {'symbol': fund_code}),
         ]
         
-        for retry in range(3):
+        for retry in range(self.max_retries):
             for func_name, kwargs in funcs_to_try:
                 try:
+                    self._apply_delay()
                     logger.info(f"Trying ak.{func_name}({fund_code}) retry {retry+1}")
                     func = getattr(ak, func_name, None)
                     if func is None:
@@ -124,8 +139,7 @@ class FundDataSource:
                     df = func(**kwargs)
                     
                     if df is not None and not df.empty:
-                        print(f"DEBUG {func_name} columns: {df.columns.tolist()}")
-                        print(f"DEBUG first row: {df.iloc[0].to_dict()}")
+                        logger.info(f"Got data from {func_name}")
                         
                         for date_col in ['day', '日期', 'date']:
                             if date_col in df.columns:
@@ -146,11 +160,12 @@ class FundDataSource:
                         result['nav'] = df['price']
                         result['accum_nav'] = df['price']
                         
-                        print(f"DEBUG Got {len(result)} rows")
+                        logger.info(f"Got {len(result)} rows")
                         return result.sort_values('date')
                 except Exception as e:
                     logger.warning(f"ak.{func_name} error: {e}")
-            time.sleep(1)
+            if retry < self.max_retries - 1:
+                time.sleep(1)
         return None
     
     def _get_fund_from_baostock(self, fund_code: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
@@ -165,34 +180,41 @@ class FundDataSource:
                 end_str = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:]}"
             
             code_formats = [f"of.{fund_code}", f"sh.{fund_code}", f"sz.{fund_code}"]
-            for code in code_formats:
-                logger.info(f"Trying Baostock with {code}")
-                print(f"DEBUG Baostock: querying {code} from {start_str} to {end_str}")
-                rs = bs.query_history_k_data_plus(
-                    code,
-                    "date,open,high,low,close",
-                    start_date=start_str,
-                    end_date=end_str,
-                    frequency="d",
-                    adjustflag="3"
-                )
-                
-                print(f"DEBUG Baostock result: error_code={rs.error_code}, error_msg={rs.error_msg}")
-                
-                if rs.error_code == '0':
-                    data_list = []
-                    while rs.error_code == '0' and rs.next():
-                        data_list.append(rs.get_row_data())
-                    
-                    if data_list:
-                        df = pd.DataFrame(data_list, columns=rs.fields)
-                        logger.info(f"Got {len(df)} rows from Baostock")
-                        df = df.rename(columns={'close': 'nav'})
-                        df['accum_nav'] = df['nav']
-                        bs.logout()
-                        return df[['date', 'nav', 'accum_nav']]
-                    else:
-                        print(f"DEBUG Baostock: no data rows for {code}")
+            
+            for retry in range(self.max_retries):
+                for code in code_formats:
+                    try:
+                        self._apply_delay()
+                        logger.info(f"Trying Baostock with {code}")
+                        rs = bs.query_history_k_data_plus(
+                            code,
+                            "date,open,high,low,close",
+                            start_date=start_str,
+                            end_date=end_str,
+                            frequency="d",
+                            adjustflag="3"
+                        )
+                        
+                        logger.info(f"Baostock result: error_code={rs.error_code}")
+                        
+                        if rs.error_code == '0':
+                            data_list = []
+                            while rs.error_code == '0' and rs.next():
+                                data_list.append(rs.get_row_data())
+                            
+                            if data_list:
+                                df = pd.DataFrame(data_list, columns=rs.fields)
+                                logger.info(f"Got {len(df)} rows from Baostock")
+                                df = df.rename(columns={'close': 'nav'})
+                                df['accum_nav'] = df['nav']
+                                bs.logout()
+                                return df[['date', 'nav', 'accum_nav']]
+                        else:
+                            logger.warning(f"Baostock query failed: {rs.error_msg}")
+                    except Exception as e:
+                        logger.warning(f"Baostock error for {code}: {e}")
+                        if retry < self.max_retries - 1:
+                            time.sleep(1)
             
             bs.logout()
         except Exception as e:
