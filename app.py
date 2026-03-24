@@ -37,18 +37,6 @@ st.markdown("""
         border-radius: 10px;
         margin-bottom: 1.5rem;
     }
-    .metric-card {
-        background-color: #f0f2f6;
-        padding: 1rem;
-        border-radius: 10px;
-        border-left: 4px solid #4e8cff;
-    }
-    .metric-positive {
-        color: #28a745;
-    }
-    .metric-negative {
-        color: #dc3545;
-    }
     .section-header {
         font-size: 1.3rem;
         font-weight: bold;
@@ -65,6 +53,12 @@ st.markdown("""
         background-color: #f8f9fa;
         padding: 10px;
         border-radius: 8px;
+    }
+    .strategy-section {
+        background-color: #f0f4f8;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 0.5rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -97,11 +91,15 @@ def render_metrics(result):
         delta_color = "normal" if result.annual_return >= 0 else "inverse"
         st.metric("年化收益(%)", f"{result.annual_return:+.2f}%", delta_color=delta_color)
     
-    col5, col6 = st.columns(2)
+    col5, col6, col7, col8 = st.columns(4)
     with col5:
         st.metric("最大回撤(%)", f"{result.max_drawdown:.2f}%")
     with col6:
         st.metric("定投次数(次)", f"{result.investment_count}")
+    with col7:
+        st.metric("止损次数(次)", f"{result.stop_loss_count}")
+    with col8:
+        st.metric("止盈次数(次)", f"{result.take_profit_count}")
 
 
 def sidebar_params():
@@ -115,23 +113,49 @@ def sidebar_params():
     
     st.sidebar.markdown("---")
     st.sidebar.subheader("💰 投资设置")
-    amount = st.sidebar.number_input("每次定投金额", min_value=100, value=1000, step=100)
+    amount = st.sidebar.number_input("每次定投金额(元)", min_value=100, value=1000, step=100)
     
     frequency = st.sidebar.selectbox("定投频率", ["每月", "每周", "每日"], index=0)
     freq_map = {"每月": "monthly", "每周": "weekly", "每日": "daily"}
     frequency = freq_map[frequency]
     
     st.sidebar.markdown("---")
+    st.sidebar.subheader("📉 止损设置")
+    enable_stop_loss = st.sidebar.checkbox("启用止损", value=False)
+    
+    stop_loss_rate = 0.15
+    stop_loss_sell_ratio = 1.0
+    if enable_stop_loss:
+        stop_loss_rate = st.sidebar.slider("止损率(%)", min_value=5, max_value=30, value=15) / 100
+        stop_loss_sell_ratio = st.sidebar.slider("止损卖出比例(%)", min_value=50, max_value=100, value=100) / 100
+    
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📈 止盈设置")
+    enable_take_profit = st.sidebar.checkbox("启用止盈", value=False)
+    
+    take_profit_rate = 0.20
+    max_drawdown_threshold = 0.10
+    take_profit_sell_ratio = 0.5
+    if enable_take_profit:
+        take_profit_rate = st.sidebar.slider("止盈收益率(%)", min_value=5, max_value=50, value=20) / 100
+        max_drawdown_threshold = st.sidebar.slider("最大回撤阈值(%)", min_value=5, max_value=30, value=10) / 100
+        take_profit_sell_ratio = st.sidebar.slider("卖出比例(%)", min_value=10, max_value=100, value=50) / 100
+    
+    st.sidebar.markdown("---")
     st.sidebar.subheader("📡 数据源")
     data_source = st.sidebar.selectbox("选择数据源", AVAILABLE_SOURCES, index=0)
     
-    return start_date, end_date, amount, frequency, data_source
+    return (start_date, end_date, amount, frequency, data_source,
+            enable_stop_loss, stop_loss_rate, stop_loss_sell_ratio,
+            enable_take_profit, take_profit_rate, max_drawdown_threshold, take_profit_sell_ratio)
 
 
 def main():
     st.markdown('<div class="main-header">📈 股票定投回测工具</div>', unsafe_allow_html=True)
     
-    start_date, end_date, amount, frequency, data_source = sidebar_params()
+    (start_date, end_date, amount, frequency, data_source,
+     enable_stop_loss, stop_loss_rate, stop_loss_sell_ratio,
+     enable_take_profit, take_profit_rate, max_drawdown_threshold, take_profit_sell_ratio) = sidebar_params()
     
     tab1, tab2 = st.tabs(["📊 单股票回测", "📈 多股票对比"])
     
@@ -164,7 +188,14 @@ def main():
                         end_date=str(end_date),
                         investment_amount=amount,
                         frequency=frequency,
-                        data_source=data_source
+                        data_source=data_source,
+                        enable_stop_loss=enable_stop_loss,
+                        stop_loss_rate=stop_loss_rate,
+                        stop_loss_sell_ratio=stop_loss_sell_ratio,
+                        enable_take_profit=enable_take_profit,
+                        take_profit_rate=take_profit_rate,
+                        max_drawdown_threshold=max_drawdown_threshold,
+                        take_profit_sell_ratio=take_profit_sell_ratio
                     )
                     
                     result = tester.single_fund(config)
@@ -180,8 +211,8 @@ def main():
                         st.pyplot(fig)
                         
                         with st.expander("📋 查看交易记录", expanded=False):
-                            trades_display = result.trades[['date', 'nav', 'shares', 'total_shares', 'portfolio_value', 'return_rate']].copy()
-                            trades_display.columns = ['日期', '净值(元)', '买入份额(份)', '累计份额(份)', '组合价值(元)', '收益率(%)']
+                            trades_display = result.trades[['date', 'action', 'nav', 'shares', 'total_shares', 'portfolio_value', 'return_rate', 'reason']].copy()
+                            trades_display.columns = ['日期', '操作', '净值(元)', '份额变化(份)', '累计份额(份)', '组合价值(元)', '收益率(%)', '原因']
                             trades_display['日期'] = pd.to_datetime(trades_display['日期']).astype(str).str[:10]
                             st.dataframe(trades_display, use_container_width=True, height=300)
                     else:
@@ -217,7 +248,7 @@ def main():
             with col_end2:
                 end_date2 = st.date_input("结束日期", value=date(2024, 12, 31), key="end2")
             
-            amount2 = st.number_input("每次定投金额", min_value=100, value=1000, step=100, key="amt2")
+            amount2 = st.number_input("每次定投金额(元)", min_value=100, value=1000, step=100, key="amt2")
             
             compare_btn = st.button("🔍 开始对比", type="primary", use_container_width=True)
         
@@ -228,7 +259,15 @@ def main():
                     fund_list = [{'fund_code': c, 'name': get_fund_name(c)} for c in codes]
                     
                     tester = FundBacktester(data_source=data_source)
-                    results = tester.compare(fund_list, str(start_date2), str(end_date2), amount2)
+                    results = tester.compare(
+                        fund_list, str(start_date2), str(end_date2), amount2,
+                        enable_stop_loss=enable_stop_loss,
+                        stop_loss_rate=stop_loss_rate,
+                        enable_take_profit=enable_take_profit,
+                        take_profit_rate=take_profit_rate,
+                        max_drawdown_threshold=max_drawdown_threshold,
+                        sell_ratio=take_profit_sell_ratio
+                    )
                     
                     if results:
                         st.success(f"✅ 对比完成 - {len(results)} 个股票")
@@ -241,7 +280,9 @@ def main():
                                 '总收益(%)': f"{r.return_rate:+.2f}%",
                                 '年化收益(%)': f"{r.annual_return:+.2f}%",
                                 '最大回撤(%)': f"{r.max_drawdown:.2f}%",
-                                '定投次数(次)': r.investment_count
+                                '定投次数(次)': r.investment_count,
+                                '止损(次)': r.stop_loss_count,
+                                '止盈(次)': r.take_profit_count
                             }
                             for name, r in results.items()
                         ])

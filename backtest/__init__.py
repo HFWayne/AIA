@@ -18,10 +18,19 @@ class BacktestConfig:
     investment_amount: float
     frequency: str = 'monthly'
     data_source: str = None
+    
+    enable_stop_loss: bool = False
+    stop_loss_rate: float = 0.15
+    stop_loss_sell_ratio: float = 1.0
+    
+    enable_take_profit: bool = False
+    take_profit_rate: float = 0.20
+    max_drawdown_threshold: float = 0.10
+    take_profit_sell_ratio: float = 0.5
 
 
 class FundBacktester:
-    """基金定投回测主类"""
+    """股票定投回测主类"""
     
     def __init__(self, data_source: str = None):
         from data_source.config import DATA_SOURCE
@@ -32,23 +41,27 @@ class FundBacktester:
         print(f"使用数据源: {self.data_source}")
     
     def single_fund(self, config: BacktestConfig) -> Optional[BacktestResult]:
-        """单个基金回测"""
+        """单个股票回测"""
         params = DCAParams(
             fund_code=config.fund_code,
             fund_name=config.fund_name,
             start_date=config.start_date,
             end_date=config.end_date,
             investment_amount=config.investment_amount,
-            frequency=config.frequency
+            frequency=config.frequency,
+            enable_stop_loss=config.enable_stop_loss,
+            stop_loss_rate=config.stop_loss_rate,
+            stop_loss_sell_ratio=config.stop_loss_sell_ratio,
+            enable_take_profit=config.enable_take_profit,
+            take_profit_rate=config.take_profit_rate,
+            max_drawdown_threshold=config.max_drawdown_threshold,
+            take_profit_sell_ratio=config.take_profit_sell_ratio
         )
         return self.backtest.run(params)
     
     def portfolio(self, funds: List[Dict], start_date: str, end_date: str, 
                   total_amount: float, frequency: str = 'monthly') -> Dict:
-        """
-        组合回测
-        :param funds: [{"fund_code": "510300", "name": "沪深300", "weight": 0.5}, ...]
-        """
+        """组合回测"""
         portfolio = []
         for f in funds:
             portfolio.append({
@@ -66,8 +79,11 @@ class FundBacktester:
         )
     
     def compare(self, funds: List[Dict], start_date: str, end_date: str, 
-                amount: float, frequency: str = 'monthly') -> Dict[str, BacktestResult]:
-        """对比多个基金"""
+                amount: float, frequency: str = 'monthly',
+                enable_stop_loss: bool = False, stop_loss_rate: float = 0.15,
+                enable_take_profit: bool = False, take_profit_rate: float = 0.20,
+                max_drawdown_threshold: float = 0.10, sell_ratio: float = 0.5) -> Dict[str, BacktestResult]:
+        """对比多个股票"""
         results = {}
         for f in funds:
             config = BacktestConfig(
@@ -77,7 +93,13 @@ class FundBacktester:
                 end_date=end_date,
                 investment_amount=amount,
                 frequency=frequency,
-                data_source=self.data_source
+                data_source=self.data_source,
+                enable_stop_loss=enable_stop_loss,
+                stop_loss_rate=stop_loss_rate,
+                enable_take_profit=enable_take_profit,
+                take_profit_rate=take_profit_rate,
+                max_drawdown_threshold=max_drawdown_threshold,
+                take_profit_sell_ratio=sell_ratio
             )
             result = self.single_fund(config)
             if result:
@@ -85,7 +107,7 @@ class FundBacktester:
         return results
     
     def visualize_single(self, result: BacktestResult, title: str = None, save_path: str = None):
-        """可视化单个基金结果"""
+        """可视化单个股票结果"""
         return self.visualizer.plot_single_fund(result, title, save_path)
     
     def visualize_portfolio(self, results: Dict, save_path: str = None):
@@ -101,13 +123,13 @@ def quick_backtest(fund_code: str, fund_name: str = None,
                    start_date: str = '2022-01-01', 
                    end_date: str = '2024-12-31',
                    amount: float = 1000,
-                   data_source: str = None) -> Optional[BacktestResult]:
+                   data_source: str = None,
+                   **strategy_kwargs) -> Optional[BacktestResult]:
     """快速回测函数"""
     from data_source.config import DATA_SOURCE
     name_map = {
-        '510300': '沪深300ETF', '510050': '上证50ETF', '510500': '中证500ETF',
-        '159915': '创业板ETF', '588000': '科创50ETF', '518880': '黄金ETF',
-        '159934': '易方达黄金ETF', '511010': '中债ETF', '161039': '纯债基金',
+        '600036': '招商银行', '601318': '中国平安', '000858': '五粮液',
+        '600519': '贵州茅台', '601888': '中国中免', '300750': '宁德时代',
     }
     fund_name = fund_name or name_map.get(fund_code, fund_code)
     source = data_source or DATA_SOURCE
@@ -119,7 +141,8 @@ def quick_backtest(fund_code: str, fund_name: str = None,
         start_date=start_date,
         end_date=end_date,
         investment_amount=amount,
-        data_source=data_source
+        data_source=data_source,
+        **strategy_kwargs
     )
     
     result = tester.single_fund(config)
@@ -135,6 +158,8 @@ def quick_backtest(fund_code: str, fund_name: str = None,
         print(f"总收益: {result.total_return:+,.0f} ({result.return_rate:+.2f}%)")
         print(f"年化收益: {result.annual_return:+.2f}%")
         print(f"最大回撤: {result.max_drawdown:.2f}%")
+        print(f"止损次数: {result.stop_loss_count}")
+        print(f"止盈次数: {result.take_profit_count}")
         
         tester.visualize_single(result, fund_name)
         return result
@@ -144,5 +169,4 @@ def quick_backtest(fund_code: str, fund_name: str = None,
 
 
 if __name__ == "__main__":
-    # 快速测试
-    quick_backtest('510300', start_date='2022-01-01', end_date='2024-12-31', amount=1000)
+    quick_backtest('600036', start_date='2022-01-01', end_date='2024-12-31', amount=1000)

@@ -5,21 +5,10 @@
 这是一个 Python 股票/基金数据分析和 DCA（定期定额投资）回测项目，提供：
 - 统一数据源接口，支持 tushare、akshare、baostock
 - 带可视化功能的 DCA 回测引擎
-- 运行回测的命令行工具
+- 支持止损止盈策略
+- Web UI 界面 (Streamlit)
 
 ## 构建/测试/运行命令
-
-### 运行应用程序
-```bash
-# 单基金回测
-python main.py --fund 600036 --name 招商银行
-
-# 多基金对比
-python main.py --compare --funds 600036,000001 --start 2022-01-01 --end 2024-12-31
-
-# 指定数据源
-python main.py --fund 600036 --source tushare
-```
 
 ### 运行 Web UI (Streamlit)
 ```bash
@@ -182,9 +171,9 @@ project/
 │   └── fund_data_source.py
 ├── backtest/            # 回测逻辑
 │   ├── dca_backtest.py
-│   └── visualization.py
-├── tests/               # 单元测试（如果有）
-├── main.py             # 命令行入口
+│   ├── visualization.py
+│   └── __init__.py
+├── tests/               # 单元测试
 ├── app.py              # Streamlit Web UI
 └── AGENTS.md           # 本文件
 ```
