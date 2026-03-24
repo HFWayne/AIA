@@ -11,6 +11,7 @@ from datetime import date
 from backtest import FundBacktester, BacktestConfig
 from backtest.visualization import BacktestVisualizer
 from data_source.config import DATA_SOURCE, AVAILABLE_SOURCES
+from backtest.report_manager import ReportManager
 
 
 st.set_page_config(
@@ -54,12 +55,6 @@ st.markdown("""
         padding: 10px;
         border-radius: 8px;
     }
-    .strategy-section {
-        background-color: #f0f4f8;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 0.5rem 0;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -74,6 +69,10 @@ NAME_MAP = {
 
 def get_fund_name(code: str) -> str:
     return NAME_MAP.get(code, code)
+
+
+def get_report_manager():
+    return ReportManager()
 
 
 def render_metrics(result):
@@ -100,6 +99,33 @@ def render_metrics(result):
         st.metric("止损次数(次)", f"{result.stop_loss_count}")
     with col8:
         st.metric("止盈次数(次)", f"{result.take_profit_count}")
+
+
+def render_report_metrics(report):
+    """渲染报告指标卡片"""
+    col1, col2, col3, col4 = st.columns(4)
+    r = report.result
+    
+    with col1:
+        st.metric("总投入(元)", f"¥{r['total_invested']:,.0f}")
+    with col2:
+        st.metric("最终价值(元)", f"¥{r['final_value']:,.0f}")
+    with col3:
+        delta_color = "normal" if r['return_rate'] >= 0 else "inverse"
+        st.metric("总收益(%)", f"{r['return_rate']:+.2f}%", delta=f"{r['total_return']:+,.0f}元", delta_color=delta_color)
+    with col4:
+        delta_color = "normal" if r['annual_return'] >= 0 else "inverse"
+        st.metric("年化收益(%)", f"{r['annual_return']:+.2f}%", delta_color=delta_color)
+    
+    col5, col6, col7, col8 = st.columns(4)
+    with col5:
+        st.metric("最大回撤(%)", f"{r['max_drawdown']:.2f}%")
+    with col6:
+        st.metric("定投次数(次)", f"{r['investment_count']}")
+    with col7:
+        st.metric("止损次数(次)", f"{r['stop_loss_count']}")
+    with col8:
+        st.metric("止盈次数(次)", f"{r['take_profit_count']}")
 
 
 def sidebar_params():
@@ -150,6 +176,414 @@ def sidebar_params():
             enable_take_profit, take_profit_rate, max_drawdown_threshold, take_profit_sell_ratio)
 
 
+def plot_report_trades(report):
+    """绘制报告的交易曲线"""
+    trades = pd.DataFrame(report.trades)
+    trades['date'] = pd.to_datetime(trades['date'])
+    trades = trades.sort_values('date')
+    trades['total_invested'] = [report.investment_amount * i for i in range(1, len(trades) + 1)]
+    
+    fig, axes = plt.subplots(2, 1, figsize=(10, 8), dpi=100)
+    
+    ax1 = axes[0]
+    ax1.plot(trades['date'], trades['total_invested'], label='累计投入', color='blue', linewidth=2)
+    ax1.plot(trades['date'], trades['portfolio_value'], label='资产总值', color='green', linewidth=2)
+    ax1.fill_between(trades['date'], trades['total_invested'], trades['portfolio_value'],
+                    where=trades['portfolio_value'] >= trades['total_invested'],
+                    alpha=0.3, color='green', label='盈利')
+    ax1.fill_between(trades['date'], trades['total_invested'], trades['portfolio_value'],
+                    where=trades['portfolio_value'] < trades['total_invested'],
+                    alpha=0.3, color='red', label='亏损')
+    ax1.set_title(f'{report.name} - 投入与收益曲线', fontsize=12)
+    ax1.set_xlabel('日期')
+    ax1.set_ylabel('金额(元)')
+    ax1.legend(loc='upper left')
+    ax1.grid(True, alpha=0.3)
+    
+    ax2 = axes[1]
+    ax2.plot(trades['date'], trades['return_rate'], color='purple', linewidth=2)
+    ax2.axhline(y=0, color='black', linestyle='--', alpha=0.5)
+    ax2.fill_between(trades['date'], 0, trades['return_rate'],
+                     where=trades['return_rate'] >= 0, alpha=0.3, color='green')
+    ax2.fill_between(trades['date'], 0, trades['return_rate'],
+                     where=trades['return_rate'] < 0, alpha=0.3, color='red')
+    ax2.set_title(f'{report.name} - 收益率走势', fontsize=12)
+    ax2.set_xlabel('日期')
+    ax2.set_ylabel('收益率(%)')
+    ax2.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    return fig
+
+
+def page_single_backtest(sd, ed, amt, freq, ds, esl, slr, slsr, etp, tpr, mdt, tpsr):
+    """单股票回测页面"""
+    col1, col2 = st.columns([1, 2.5])
+    
+    with col1:
+        with st.container():
+            st.markdown('<div class="section-header">📝 股票选择</div>', unsafe_allow_html=True)
+            fund_code = st.text_input("股票代码", value="600036", help="如: 600036")
+            fund_name = st.text_input("股票名称", value="", help="留空则自动识别")
+            
+            if not fund_name:
+                fund_name = get_fund_name(fund_code)
+            
+            st.info(f"当前选择: **{fund_name}** ({fund_code})")
+            
+            st.markdown("### ")
+            run_btn = st.button("🚀 开始回测", type="primary", use_container_width=True)
+    
+    with col2:
+        if run_btn:
+            with st.spinner("正在获取数据并计算..."):
+                tester = FundBacktester(data_source=ds)
+                
+                config = BacktestConfig(
+                    fund_code=fund_code,
+                    fund_name=fund_name,
+                    start_date=str(sd),
+                    end_date=str(ed),
+                    investment_amount=amt,
+                    frequency=freq,
+                    data_source=ds,
+                    enable_stop_loss=esl,
+                    stop_loss_rate=slr,
+                    stop_loss_sell_ratio=slsr,
+                    enable_take_profit=etp,
+                    take_profit_rate=tpr,
+                    max_drawdown_threshold=mdt,
+                    take_profit_sell_ratio=tpsr
+                )
+                
+                result = tester.single_fund(config)
+                
+                if result:
+                    result.strategy_params = {
+                        'fund_code': fund_code,
+                        'fund_name': fund_name,
+                        'start_date': str(sd),
+                        'end_date': str(ed),
+                        'frequency': freq,
+                        'enable_stop_loss': esl,
+                        'stop_loss_rate': slr,
+                        'stop_loss_sell_ratio': slsr,
+                        'enable_take_profit': etp,
+                        'take_profit_rate': tpr,
+                        'max_drawdown_threshold': mdt,
+                        'take_profit_sell_ratio': tpsr
+                    }
+                    st.session_state['current_result'] = result
+                    st.session_state['current_fund_name'] = fund_name
+        
+        current_result = st.session_state.get('current_result')
+        current_fund_name = st.session_state.get('current_fund_name', fund_name)
+        
+        if current_result:
+            st.success(f"✅ 回测完成 - {current_fund_name}")
+            
+            render_metrics(current_result)
+            
+            if st.button("💾 保存报告", key="save_report_btn", use_container_width=True):
+                rm = get_report_manager()
+                report_id = rm.save_report(current_result)
+                st.session_state['last_save_id'] = report_id
+                st.session_state['refresh_reports'] = True
+                st.rerun()
+            
+            if 'last_save_id' in st.session_state:
+                st.success(f"报告已保存! ID: {st.session_state['last_save_id']}")
+            
+            st.markdown("### ")
+            visualizer = BacktestVisualizer()
+            fig = visualizer.plot_single_fund(current_result, current_fund_name)
+            st.pyplot(fig)
+            
+            with st.expander("📋 查看交易记录", expanded=False):
+                trades_display = current_result.trades[['date', 'action', 'nav', 'shares', 'total_shares', 'portfolio_value', 'return_rate', 'reason']].copy()
+                trades_display.columns = ['日期', '操作', '净值(元)', '份额变化(份)', '累计份额(份)', '组合价值(元)', '收益率(%)', '原因']
+                trades_display['日期'] = pd.to_datetime(trades_display['日期']).astype(str).str[:10]
+                st.dataframe(trades_display, use_container_width=True, height=300)
+        elif run_btn:
+            st.error("获取数据失败，请检查股票代码或尝试其他数据源")
+        else:
+            st.info("👈 请在左侧输入股票代码并点击开始回测")
+            
+            st.markdown("---")
+            st.markdown("### 💡 常用股票代码")
+            col_q1, col_q2, col_q3 = st.columns(3)
+            with col_q1:
+                st.code("600036 - 招商银行")
+                st.code("601318 - 中国平安")
+            with col_q2:
+                st.code("600519 - 贵州茅台")
+                st.code("000858 - 五粮液")
+            with col_q3:
+                st.code("000001 - 上证指数")
+                st.code("399001 - 深证成指")
+
+
+def page_compare(sd2, ed2, amt2, esl, slr, etp, tpr, mdt, tpsr, ds):
+    """多股票对比页面"""
+    st.markdown('<div class="section-header">📈 多股票对比分析</div>', unsafe_allow_html=True)
+    
+    col_left, col_right = st.columns([1, 2.5])
+    
+    with col_left:
+        compare_funds = st.text_area("股票代码（逗号分隔）", value="600036,601318,600519", height=100,
+                                     help="多个代码用逗号分隔，如: 600036,601318,600519")
+        
+        col_start2, col_end2 = st.columns(2)
+        with col_start2:
+            start_date2 = st.date_input("开始日期", value=date(2022, 1, 1), key="start2")
+        with col_end2:
+            end_date2 = st.date_input("结束日期", value=date(2024, 12, 31), key="end2")
+        
+        amount2 = st.number_input("每次定投金额(元)", min_value=100, value=1000, step=100, key="amt2")
+        
+        compare_btn = st.button("🔍 开始对比", type="primary", use_container_width=True)
+    
+    with col_right:
+        if compare_btn:
+            with st.spinner("正在获取数据并计算..."):
+                codes = [c.strip() for c in compare_funds.split(',') if c.strip()]
+                fund_list = [{'fund_code': c, 'name': get_fund_name(c)} for c in codes]
+                
+                tester = FundBacktester(data_source=ds)
+                results = tester.compare(
+                    fund_list, str(start_date2), str(end_date2), amount2,
+                    enable_stop_loss=esl,
+                    stop_loss_rate=slr,
+                    enable_take_profit=etp,
+                    take_profit_rate=tpr,
+                    max_drawdown_threshold=mdt,
+                    sell_ratio=tpsr
+                )
+                
+                if results:
+                    st.success(f"✅ 对比完成 - {len(results)} 个股票")
+                    
+                    comp_df = pd.DataFrame([
+                        {
+                            '股票': name,
+                            '总投入(元)': f"¥{r.total_invested:,.0f}",
+                            '最终价值(元)': f"¥{r.final_value:,.0f}",
+                            '总收益(%)': f"{r.return_rate:+.2f}%",
+                            '年化收益(%)': f"{r.annual_return:+.2f}%",
+                            '最大回撤(%)': f"{r.max_drawdown:.2f}%",
+                            '定投次数(次)': r.investment_count,
+                            '止损(次)': r.stop_loss_count,
+                            '止盈(次)': r.take_profit_count
+                        }
+                        for name, r in results.items()
+                    ])
+                    
+                    st.dataframe(comp_df, use_container_width=True, hide_index=True)
+                    
+                    st.markdown("### ")
+                    visualizer = BacktestVisualizer()
+                    fig = visualizer.plot_comparison(results)
+                    st.pyplot(fig)
+                else:
+                    st.error("获取数据失败，请检查股票代码或尝试其他数据源")
+        else:
+            st.info("👈 请输入股票代码并点击开始对比")
+
+
+def page_reports():
+    """报告管理页面"""
+    if 'refresh_reports' not in st.session_state:
+        st.session_state['refresh_reports'] = True
+    
+    rm = ReportManager()
+    
+    if st.session_state.get('refresh_reports', False):
+        st.cache_data.clear()
+        st.session_state['refresh_reports'] = False
+    
+    reports = rm.list_reports()
+    
+    tab1, tab2, tab3 = st.tabs(["📋 报告列表", "📊 报告详情", "📈 报告对比"])
+    
+    with tab1:
+        st.markdown('<div class="section-header">📋 已保存的报告</div>', unsafe_allow_html=True)
+        
+        if not reports:
+            st.info("暂无保存的报告，请先进行回测并保存报告")
+        else:
+            col_search, col_filter = st.columns([2, 1])
+            with col_search:
+                search = st.text_input("搜索报告", "", key="search_reports")
+            with col_filter:
+                fund_codes = list(set(r.fund_code for r in reports))
+                filter_code = st.selectbox("筛选股票", ["全部"] + fund_codes, key="filter_reports")
+            
+            filtered_reports = rm.list_reports(
+                fund_code=filter_code if filter_code != "全部" else None,
+                search=search if search else None
+            )
+            
+            if filtered_reports:
+                for report in filtered_reports:
+                    with st.container():
+                        col_name, col_rate, col_actions = st.columns([4, 1, 1])
+                        with col_name:
+                            st.markdown(f"**{report.name}**")
+                            st.caption(f"ID: {report.id} | 创建: {report.created_at[:19]}")
+                        with col_rate:
+                            delta = "🔼" if report.result['return_rate'] >= 0 else "🔽"
+                            st.write(f"{delta} {report.result['return_rate']:+.2f}%")
+                        with col_actions:
+                            col_v, col_d = st.columns(2)
+                            with col_v:
+                                if st.button("查看", key=f"view_{report.id}"):
+                                    st.session_state['selected_report_id'] = report.id
+                                    st.rerun()
+                            with col_d:
+                                if st.button("删除", key=f"del_{report.id}"):
+                                    rm.delete_report(report.id)
+                                    st.rerun()
+                        
+                        st.markdown("---")
+            else:
+                st.info("没有找到匹配的报告")
+    
+    with tab2:
+        st.markdown('<div class="section-header">📊 报告详情</div>', unsafe_allow_html=True)
+        
+        reports = rm.list_reports()
+        
+        if not reports:
+            st.info("暂无报告")
+        else:
+            default_idx = 0
+            selected_id = st.session_state.get('selected_report_id')
+            if selected_id:
+                for i, r in enumerate(reports):
+                    if r.id == selected_id:
+                        default_idx = i
+                        break
+            
+            report_options = [f"{r.name} ({r.created_at[:10]})" for r in reports]
+            report_ids = [r.id for r in reports]
+            
+            selected_idx = st.selectbox(
+                "选择报告",
+                range(len(reports)),
+                index=default_idx,
+                format_func=lambda x: report_options[x],
+                key="select_report_detail"
+            )
+            
+            report_id = report_ids[selected_idx]
+            report = rm.load_report(report_id)
+            
+            if report:
+                st.subheader(report.name)
+                st.caption(f"创建时间: {report.created_at}")
+                
+                render_report_metrics(report)
+                
+                st.markdown("### ")
+                fig = plot_report_trades(report)
+                st.pyplot(fig)
+                
+                if st.button("🗑️ 删除报告", key="delete_from_detail"):
+                    rm.delete_report(report_id)
+                    st.session_state['selected_report_id'] = None
+                    st.rerun()
+                
+                with st.expander("📋 查看交易记录"):
+                    trades_df = pd.DataFrame(report.trades)
+                    trades_df['date'] = pd.to_datetime(trades_df['date']).dt.strftime('%Y-%m-%d')
+                    trades_df.columns = ['日期', '操作', '净值(元)', '份额变化(份)', '累计份额(份)', '组合价值(元)', '收益率(%)', '原因']
+                    st.dataframe(trades_df, use_container_width=True, height=300)
+    
+    with tab3:
+        st.markdown('<div class="section-header">📈 报告对比</div>', unsafe_allow_html=True)
+        
+        if len(reports) < 2:
+            st.info("需要至少2个报告才能进行对比")
+        else:
+            selected_ids = st.multiselect("选择要对比的报告（至少选择2个）",
+                                         options=[r.id for r in reports],
+                                         default=[r.id for r in reports[:2]] if len(reports) >= 2 else [],
+                                         format_func=lambda x: next((r.name for r in reports if r.id == x), ""))
+            
+            if len(selected_ids) >= 2:
+                selected_reports = [rm.load_report(rid) for rid in selected_ids]
+                
+                comp_df = pd.DataFrame([
+                    {
+                        '报告': r.name,
+                        '股票': r.fund_name,
+                        '日期范围': f"{r.start_date} ~ {r.end_date}",
+                        '总投入(元)': f"¥{r.result['total_invested']:,.0f}",
+                        '最终价值(元)': f"¥{r.result['final_value']:,.0f}",
+                        '总收益(%)': f"{r.result['return_rate']:+.2f}%",
+                        '年化收益(%)': f"{r.result['annual_return']:+.2f}%",
+                        '最大回撤(%)': f"{r.result['max_drawdown']:.2f}%",
+                        '定投次数': r.result['investment_count'],
+                        '止损次数': r.result['stop_loss_count'],
+                        '止盈次数': r.result['take_profit_count']
+                    }
+                    for r in selected_reports
+                ])
+                
+                st.dataframe(comp_df, use_container_width=True, hide_index=True)
+                
+                st.markdown("### ")
+                
+                fig, axes = plt.subplots(2, 2, figsize=(14, 10), dpi=100)
+                
+                names = [r.name for r in selected_reports]
+                
+                ax1 = axes[0, 0]
+                x = range(len(names))
+                invested = [r.result['total_invested'] for r in selected_reports]
+                final = [r.result['final_value'] for r in selected_reports]
+                width = 0.35
+                ax1.bar([i - width/2 for i in x], invested, width, label='总投入', color='steelblue')
+                ax1.bar([i + width/2 for i in x], final, width, label='最终价值', color='coral')
+                ax1.set_xticks(x)
+                ax1.set_xticklabels(names, rotation=15)
+                ax1.set_ylabel('金额(元)')
+                ax1.set_title('投入与价值对比')
+                ax1.legend()
+                ax1.grid(True, alpha=0.3)
+                
+                ax2 = axes[0, 1]
+                returns = [r.result['return_rate'] for r in selected_reports]
+                colors = ['green' if r >= 0 else 'red' for r in returns]
+                ax2.bar(names, returns, color=colors)
+                ax2.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
+                ax2.set_ylabel('收益率(%)')
+                ax2.set_title('总收益率对比')
+                ax2.grid(True, alpha=0.3)
+                for i, v in enumerate(returns):
+                    ax2.text(i, v + 1 if v >= 0 else v - 3, f'{v:.1f}%', ha='center', fontsize=9)
+                
+                ax3 = axes[1, 0]
+                annual = [r.result['annual_return'] for r in selected_reports]
+                colors = ['green' if r >= 0 else 'red' for r in annual]
+                ax3.bar(names, annual, color=colors)
+                ax3.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
+                ax3.set_ylabel('年化收益(%)')
+                ax3.set_title('年化收益率对比')
+                ax3.grid(True, alpha=0.3)
+                
+                ax4 = axes[1, 1]
+                drawdowns = [r.result['max_drawdown'] for r in selected_reports]
+                ax4.barh(names, drawdowns, color='orange')
+                ax4.set_xlabel('最大回撤(%)')
+                ax4.set_title('最大回撤对比')
+                
+                plt.tight_layout()
+                st.pyplot(fig)
+            else:
+                st.info("请至少选择2个报告进行对比")
+
+
 def main():
     st.markdown('<div class="main-header">📈 股票定投回测工具</div>', unsafe_allow_html=True)
     
@@ -157,146 +591,20 @@ def main():
      enable_stop_loss, stop_loss_rate, stop_loss_sell_ratio,
      enable_take_profit, take_profit_rate, max_drawdown_threshold, take_profit_sell_ratio) = sidebar_params()
     
-    tab1, tab2 = st.tabs(["📊 单股票回测", "📈 多股票对比"])
+    tab1, tab2, tab3 = st.tabs(["📊 单股票回测", "📈 多股票对比", "📁 报告管理"])
     
     with tab1:
-        col1, col2 = st.columns([1, 2.5])
-        
-        with col1:
-            with st.container():
-                st.markdown('<div class="section-header">📝 股票选择</div>', unsafe_allow_html=True)
-                fund_code = st.text_input("股票代码", value="600036", help="如: 600036")
-                fund_name = st.text_input("股票名称", value="", help="留空则自动识别")
-                
-                if not fund_name:
-                    fund_name = get_fund_name(fund_code)
-                
-                st.info(f"当前选择: **{fund_name}** ({fund_code})")
-                
-                st.markdown("### ")
-                run_btn = st.button("🚀 开始回测", type="primary", use_container_width=True)
-        
-        with col2:
-            if run_btn:
-                with st.spinner("正在获取数据并计算..."):
-                    tester = FundBacktester(data_source=data_source)
-                    
-                    config = BacktestConfig(
-                        fund_code=fund_code,
-                        fund_name=fund_name,
-                        start_date=str(start_date),
-                        end_date=str(end_date),
-                        investment_amount=amount,
-                        frequency=frequency,
-                        data_source=data_source,
-                        enable_stop_loss=enable_stop_loss,
-                        stop_loss_rate=stop_loss_rate,
-                        stop_loss_sell_ratio=stop_loss_sell_ratio,
-                        enable_take_profit=enable_take_profit,
-                        take_profit_rate=take_profit_rate,
-                        max_drawdown_threshold=max_drawdown_threshold,
-                        take_profit_sell_ratio=take_profit_sell_ratio
-                    )
-                    
-                    result = tester.single_fund(config)
-                    
-                    if result:
-                        st.success(f"✅ 回测完成 - {fund_name}")
-                        
-                        render_metrics(result)
-                        
-                        st.markdown("### ")
-                        visualizer = BacktestVisualizer()
-                        fig = visualizer.plot_single_fund(result, fund_name)
-                        st.pyplot(fig)
-                        
-                        with st.expander("📋 查看交易记录", expanded=False):
-                            trades_display = result.trades[['date', 'action', 'nav', 'shares', 'total_shares', 'portfolio_value', 'return_rate', 'reason']].copy()
-                            trades_display.columns = ['日期', '操作', '净值(元)', '份额变化(份)', '累计份额(份)', '组合价值(元)', '收益率(%)', '原因']
-                            trades_display['日期'] = pd.to_datetime(trades_display['日期']).astype(str).str[:10]
-                            st.dataframe(trades_display, use_container_width=True, height=300)
-                    else:
-                        st.error("获取数据失败，请检查股票代码或尝试其他数据源")
-            else:
-                st.info("👈 请在左侧输入股票代码并点击开始回测")
-                
-                st.markdown("---")
-                st.markdown("### 💡 常用股票代码")
-                col_q1, col_q2, col_q3 = st.columns(3)
-                with col_q1:
-                    st.code("600036 - 招商银行")
-                    st.code("601318 - 中国平安")
-                with col_q2:
-                    st.code("600519 - 贵州茅台")
-                    st.code("000858 - 五粮液")
-                with col_q3:
-                    st.code("000001 - 上证指数")
-                    st.code("399001 - 深证成指")
+        page_single_backtest(start_date, end_date, amount, frequency, data_source,
+                           enable_stop_loss, stop_loss_rate, stop_loss_sell_ratio,
+                           enable_take_profit, take_profit_rate, max_drawdown_threshold, take_profit_sell_ratio)
     
     with tab2:
-        st.markdown('<div class="section-header">📈 多股票对比分析</div>', unsafe_allow_html=True)
-        
-        col_left, col_right = st.columns([1, 2.5])
-        
-        with col_left:
-            compare_funds = st.text_area("股票代码（逗号分隔）", value="600036,601318,600519", height=100,
-                                         help="多个代码用逗号分隔，如: 600036,601318,600519")
-            
-            col_start2, col_end2 = st.columns(2)
-            with col_start2:
-                start_date2 = st.date_input("开始日期", value=date(2022, 1, 1), key="start2")
-            with col_end2:
-                end_date2 = st.date_input("结束日期", value=date(2024, 12, 31), key="end2")
-            
-            amount2 = st.number_input("每次定投金额(元)", min_value=100, value=1000, step=100, key="amt2")
-            
-            compare_btn = st.button("🔍 开始对比", type="primary", use_container_width=True)
-        
-        with col_right:
-            if compare_btn:
-                with st.spinner("正在获取数据并计算..."):
-                    codes = [c.strip() for c in compare_funds.split(',') if c.strip()]
-                    fund_list = [{'fund_code': c, 'name': get_fund_name(c)} for c in codes]
-                    
-                    tester = FundBacktester(data_source=data_source)
-                    results = tester.compare(
-                        fund_list, str(start_date2), str(end_date2), amount2,
-                        enable_stop_loss=enable_stop_loss,
-                        stop_loss_rate=stop_loss_rate,
-                        enable_take_profit=enable_take_profit,
-                        take_profit_rate=take_profit_rate,
-                        max_drawdown_threshold=max_drawdown_threshold,
-                        sell_ratio=take_profit_sell_ratio
-                    )
-                    
-                    if results:
-                        st.success(f"✅ 对比完成 - {len(results)} 个股票")
-                        
-                        comp_df = pd.DataFrame([
-                            {
-                                '股票': name,
-                                '总投入(元)': f"¥{r.total_invested:,.0f}",
-                                '最终价值(元)': f"¥{r.final_value:,.0f}",
-                                '总收益(%)': f"{r.return_rate:+.2f}%",
-                                '年化收益(%)': f"{r.annual_return:+.2f}%",
-                                '最大回撤(%)': f"{r.max_drawdown:.2f}%",
-                                '定投次数(次)': r.investment_count,
-                                '止损(次)': r.stop_loss_count,
-                                '止盈(次)': r.take_profit_count
-                            }
-                            for name, r in results.items()
-                        ])
-                        
-                        st.dataframe(comp_df, use_container_width=True, hide_index=True)
-                        
-                        st.markdown("### ")
-                        visualizer = BacktestVisualizer()
-                        fig = visualizer.plot_comparison(results)
-                        st.pyplot(fig)
-                    else:
-                        st.error("获取数据失败，请检查股票代码或尝试其他数据源")
-            else:
-                st.info("👈 请输入股票代码并点击开始对比")
+        page_compare(start_date, end_date, amount, enable_stop_loss, stop_loss_rate,
+                    enable_take_profit, take_profit_rate, max_drawdown_threshold,
+                    take_profit_sell_ratio, data_source)
+    
+    with tab3:
+        page_reports()
 
 
 if __name__ == "__main__":

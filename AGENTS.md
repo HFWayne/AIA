@@ -7,6 +7,7 @@
 - 带可视化功能的 DCA 回测引擎
 - 支持止损止盈策略
 - Web UI 界面 (Streamlit)
+- 报告管理（保存、加载、对比）
 
 ## 构建/测试/运行命令
 
@@ -17,11 +18,14 @@ streamlit run app.py
 
 ### 测试
 ```bash
-# 运行 pytest（如果存在测试）
-pytest
+# 运行所有测试
+pytest tests/ -v
+
+# 运行单个测试文件
+pytest tests/test_dca_backtest.py -v
 
 # 运行单个测试
-pytest tests/test_file.py::test_function
+pytest tests/test_dca_backtest.py::TestDCABacktest::test_simple_dca_basic -v
 
 # 带覆盖率运行
 pytest --cov=. --cov-report=html
@@ -166,26 +170,30 @@ plt.savefig('chart.png', dpi=150, bbox_inches='tight')
 ### 文件结构
 ```
 project/
-├── data_source/          # 数据源接口
-│   ├── config.py        # 配置
+├── app.py                    # Streamlit Web UI (唯一入口)
+├── data_source/              # 数据源接口
+│   ├── config.py            # 配置
 │   └── fund_data_source.py
-├── backtest/            # 回测逻辑
+├── backtest/                # 回测逻辑
 │   ├── dca_backtest.py
 │   ├── visualization.py
+│   ├── report_manager.py     # 报告管理器
 │   └── __init__.py
-├── tests/               # 单元测试
-├── app.py              # Streamlit Web UI
-└── AGENTS.md           # 本文件
+├── reports/                  # 保存的报告 (JSON)
+└── tests/                   # 单元测试
+    ├── conftest.py          # pytest fixtures
+    ├── test_dca_backtest.py
+    └── test_report_manager.py
 ```
 
-### Git 工作流
+## Git 工作流
 - 提交信息：使用conventional格式（feat:、fix:、refactor:等）
 - 保持提交原子性和专注性
 - 完成功能后推送到远程
 
-### 常见模式
+## 常见模式
 
-#### 数据源降级
+### 数据源降级
 ```python
 def get_data(self, fund_code: str) -> Optional[pd.DataFrame]:
     sources = ['tushare', 'akshare', 'baostock']
@@ -202,7 +210,7 @@ def get_data(self, fund_code: str) -> Optional[pd.DataFrame]:
     return None  # 所有数据源都失败
 ```
 
-#### 类定义
+### 类定义
 ```python
 from dataclasses import dataclass
 from typing import Optional
@@ -219,18 +227,31 @@ class BacktestResult:
     investment_count: int      # 投资次数
     nav_data: pd.DataFrame    # 净值数据
     trades: pd.DataFrame      # 交易记录
+    stop_loss_count: int       # 止损次数
+    take_profit_count: int     # 止盈次数
 ```
 
-### 运行单个测试
+### 报告保存
+```python
+from report_manager import ReportManager
+
+rm = ReportManager()
+report_id = rm.save_report(backtest_result)
+
+# 生成报告名称示例
+# 招商银行_600036_2022-01-01-2024-12-31_止盈20%止损15%
+```
+
+## 运行单个测试
 ```bash
 # 使用 pytest
-pytest tests/test_backtest.py::test_dca_calculation -v
+pytest tests/test_dca_backtest.py::TestDCABacktest::test_simple_dca_basic -v
 
 # 使用 unittest
-python -m unittest tests.test_backtest.TestDCABacktest.test_dca_calculation
+python -m unittest tests.test_backtest.TestDCABacktest.test_simple_dca_basic
 ```
 
-### VS Code / IDE 推荐设置
+## VS Code / IDE 推荐设置
 ```json
 {
     "python.linting.flake8Enabled": true,

@@ -5,3 +5,4 @@ config.py
 *.csv
 .venv/
 .idea
+reports/*.json
