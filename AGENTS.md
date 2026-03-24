@@ -1,123 +1,123 @@
-# AGENTS.md - AI Agent Coding Guidelines
+# AGENTS.md - AI 开发者指南
 
-## Project Overview
+## 项目概述
 
-This is a Python project for stock/fund data analysis and DCA (Dollar-Cost Averaging) backtesting. It provides:
-- Unified data source interface supporting tushare, akshare, and baostock
-- DCA backtesting engine with visualization
-- CLI tool for running backtests
+这是一个 Python 股票/基金数据分析和 DCA（定期定额投资）回测项目，提供：
+- 统一数据源接口，支持 tushare、akshare、baostock
+- 带可视化功能的 DCA 回测引擎
+- 运行回测的命令行工具
 
-## Build/Lint/Test Commands
+## 构建/测试/运行命令
 
-### Running the Application
+### 运行应用程序
 ```bash
-# Single fund backtest
+# 单基金回测
 python main.py --fund 600036 --name 招商银行
 
-# Compare multiple funds
+# 多基金对比
 python main.py --compare --funds 600036,000001 --start 2022-01-01 --end 2024-12-31
 
-# Specify data source
+# 指定数据源
 python main.py --fund 600036 --source tushare
 ```
 
-### Testing
+### 测试
 ```bash
-# Run pytest (if tests exist)
+# 运行 pytest（如果存在测试）
 pytest
 
-# Run single test
+# 运行单个测试
 pytest tests/test_file.py::test_function
 
-# Run with coverage
+# 带覆盖率运行
 pytest --cov=. --cov-report=html
 ```
 
-### Code Quality
+### 代码质量
 ```bash
-# Lint with flake8
+# flake8 检查
 flake8 .
 
-# Format with black
+# black 格式化
 black .
 
-# Sort imports
+# isort 排序导入
 isort .
 ```
 
-## Code Style Guidelines
+## 代码风格指南
 
-### General Principles
-- Keep functions small and focused (max ~50 lines)
-- Write docstrings for all public functions
-- Type hints required for function parameters and return values
-- Handle exceptions gracefully - never let the program crash silently
+### 通用原则
+- 保持函数小而专注（最多约50行）
+- 为所有公共函数编写文档字符串
+- 函数参数和返回值必须使用类型注解
+- 优雅处理异常，不要让程序默默崩溃
 
-### Import Conventions
+### 导入顺序
 ```python
-# Standard library imports first
+# 第一：标准库
 import os
 import sys
 from datetime import datetime
 from typing import Optional, List, Dict
 
-# Third-party imports second
+# 第二：第三方库
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Local imports last
+# 最后：本地模块
 from data_source.fund_data_source import FundDataSource
 from backtest.dca_backtest import DCABacktest
 ```
 
-### Naming Conventions
-- **Variables/functions**: snake_case (e.g., `fund_code`, `get_fund_data`)
-- **Classes**: PascalCase (e.g., `FundDataSource`, `DCABacktest`)
-- **Constants**: UPPER_SNAKE_CASE (e.g., `DATA_SOURCE`, `TU_SHARE_TOKEN`)
-- **Private methods**: prefix with underscore (e.g., `_get_fund_from_tushare`)
+### 命名规范
+- **变量/函数**：snake_case（如 `fund_code`、`get_fund_data`）
+- **类**：PascalCase（如 `FundDataSource`、`DCABacktest`）
+- **常量**：UPPER_SNAKE_CASE（如 `DATA_SOURCE`、`TU_SHARE_TOKEN`）
+- **私有方法**：以下划线开头（如 `_get_fund_from_tushare`）
 
-### Type Hints
+### 类型注解
 ```python
 def get_fund_nav(
     fund_code: str,
     start_date: str,
     end_date: str
 ) -> Optional[pd.DataFrame]:
-    """Get fund NAV data.
+    """获取基金净值数据。
     
-    Args:
-        fund_code: Fund code (e.g., "510300")
-        start_date: Start date in YYYYMMDD format
-        end_date: End date in YYYYMMDD format
+    参数:
+        fund_code: 基金代码（如 "510300"）
+        start_date: 开始日期，YYYYMMDD 格式
+        end_date: 结束日期，YYYYMMDD 格式
         
-    Returns:
-        DataFrame with columns: date, nav, accum_nav, or None on failure
+    返回:
+        包含 date, nav, accum_nav 列的 DataFrame，失败返回 None
     """
     pass
 ```
 
-### Error Handling
+### 异常处理
 ```python
-# Use try-except with specific exception types
+# 使用特定异常类型的 try-except
 try:
     result = self._fetch_data(fund_code)
 except ConnectionError as e:
-    logger.warning(f"Network error: {e}")
+    logger.warning(f"网络错误: {e}")
     return None
 except ValueError as e:
-    logger.error(f"Invalid parameter: {e}")
+    logger.error(f"参数错误: {e}")
     raise
 
-# Always log errors at appropriate level
-# - DEBUG: Detailed diagnostic info
-# - INFO: Confirmation that things are working
-# - WARNING: Something unexpected happened, but program can continue
-# - ERROR: Serious problem, function couldn't execute
-# - CRITICAL: Program may crash
+# 始终使用适当的日志级别
+# - DEBUG: 详细诊断信息
+# - INFO: 确认工作正常
+# - WARNING: 发生意外情况，但程序可以继续
+# - ERROR: 严重问题，函数无法执行
+# - CRITICAL: 程序可能崩溃
 ```
 
-### Logging
+### 日志记录
 ```python
 import logging
 
@@ -127,70 +127,70 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Use appropriate log levels
-logger.info("Starting backtest for fund: %s", fund_code)
-logger.warning("Data source unavailable, trying fallback")
-logger.error("Failed to fetch data: %s", error_message)
+# 使用适当的日志级别
+logger.info("开始回测基金: %s", fund_code)
+logger.warning("数据源不可用，尝试备用源")
+logger.error("获取数据失败: %s", error_message)
 ```
 
-### DataFrame Operations
+### DataFrame 操作
 ```python
-# Prefer method chaining
+# 优先使用方法链
 df = (
     df.rename(columns={'old': 'new'})
     .dropna()
     .sort_values('date')
 )
 
-# Use inplace sparingly
-df.dropna(inplace=True)  # OK for large datasets
+# 谨慎使用 inplace
+df.dropna(inplace=True)  # 大数据集可以
 
-# Avoid chained indexing
-df.loc[df['col'] > 0, 'result'] = 1  # Good
-# df['result'][df['col'] > 0] = 1    # Bad
+# 避免链式索引
+df.loc[df['col'] > 0, 'result'] = 1  # 正确
+# df['result'][df['col'] > 0] = 1    # 错误
 ```
 
-### Visualization
+### 可视化
 ```python
-# Use English labels for matplotlib to avoid font issues
+# 使用英文标签避免字体问题
 ax.set_title('Portfolio Value')
 ax.set_xlabel('Date')
 ax.set_ylabel('Amount')
 
-# Use tight_layout
+# 使用 tight_layout
 plt.tight_layout()
 
-# Save figures with dpi
+# 带 dpi 保存图片
 plt.savefig('chart.png', dpi=150, bbox_inches='tight')
 ```
 
-### Configuration
-- All configuration in `data_source/config.py`
-- Use environment variables or config file for secrets
-- Never hardcode API tokens in source code
+### 配置
+- 所有配置放在 `data_source/config.py`
+- 使用环境变量或配置文件存储密钥
+- 永远不要在源代码中硬编码 API 令牌
 
-### File Organization
+### 文件结构
 ```
 project/
-├── data_source/          # Data source interfaces
-│   ├── config.py        # Configuration
+├── data_source/          # 数据源接口
+│   ├── config.py        # 配置
 │   └── fund_data_source.py
-├── backtest/            # Backtesting logic
+├── backtest/            # 回测逻辑
 │   ├── dca_backtest.py
 │   └── visualization.py
-├── tests/               # Unit tests (if any)
-├── main.py             # CLI entry point
-└── AGENTS.md           # This file
+├── tests/               # 单元测试（如果有）
+├── main.py             # 命令行入口
+└── AGENTS.md           # 本文件
 ```
 
-### Git Workflow
-- Commit messages: conventional format (feat:, fix:, refactor:, etc.)
-- Keep commits atomic and focused
-- Push to remote after completing features
+### Git 工作流
+- 提交信息：使用conventional格式（feat:、fix:、refactor:等）
+- 保持提交原子性和专注性
+- 完成功能后推送到远程
 
-### Common Patterns
+### 常见模式
 
-#### Data Source Fallback
+#### 数据源降级
 ```python
 def get_data(self, fund_code: str) -> Optional[pd.DataFrame]:
     sources = ['tushare', 'akshare', 'baostock']
@@ -201,41 +201,41 @@ def get_data(self, fund_code: str) -> Optional[pd.DataFrame]:
             if data is not None:
                 return data
         except Exception as e:
-            logger.warning(f"{source} failed: {e}")
+            logger.warning(f"{source} 失败: {e}")
             continue
     
-    return None  # All sources failed
+    return None  # 所有数据源都失败
 ```
 
-#### Class Definition
+#### 类定义
 ```python
 from dataclasses import dataclass
 from typing import Optional
 
 @dataclass
 class BacktestResult:
-    """Result of a backtest run."""
-    total_invested: float
-    final_value: float
-    total_return: float
-    return_rate: float
-    annual_return: float
-    max_drawdown: float
-    investment_count: int
-    nav_data: pd.DataFrame
-    trades: pd.DataFrame
+    """回测结果"""
+    total_invested: float      # 总投入
+    final_value: float         # 最终价值
+    total_return: float        # 总收益
+    return_rate: float         # 收益率
+    annual_return: float       # 年化收益
+    max_drawdown: float        # 最大回撤
+    investment_count: int      # 投资次数
+    nav_data: pd.DataFrame    # 净值数据
+    trades: pd.DataFrame      # 交易记录
 ```
 
-### Running Single Tests
+### 运行单个测试
 ```bash
-# If using pytest
+# 使用 pytest
 pytest tests/test_backtest.py::test_dca_calculation -v
 
-# If using unittest
+# 使用 unittest
 python -m unittest tests.test_backtest.TestDCABacktest.test_dca_calculation
 ```
 
-### VS Code / IDE Settings (Recommended)
+### VS Code / IDE 推荐设置
 ```json
 {
     "python.linting.flake8Enabled": true,
