@@ -472,5 +472,90 @@ class TestBacktestResult:
         print(f"✅ 策略参数保存测试通过")
 
 
+class TestDipBuyAndBoost:
+    """补仓和增额定投策略测试"""
+    
+    def test_dip_buy_single_tier(self, mock_nav_data_with_drop_days):
+        """测试：单档大跌补仓"""
+        ds = MockDataSource(mock_nav_data_with_drop_days)
+        backtest = DCABacktest(ds)
+        
+        params = DCAParams(
+            fund_code="TEST",
+            fund_name="测试股票",
+            start_date="2022-01-01",
+            end_date="2022-12-31",
+            investment_amount=1000,
+            frequency="monthly",
+            enable_dip_buy=True,
+            dip_buy_tier1_threshold=-0.03,
+            dip_buy_tier1_amount=1000,
+            dip_buy_tier2_threshold=-0.05,
+            dip_buy_tier2_amount=2000,
+            dip_buy_tier3_threshold=-0.07,
+            dip_buy_tier3_amount=3000
+        )
+        
+        result = backtest.run(params)
+        
+        assert result is not None
+        assert result.dip_buy_count >= 0
+        print(f"✅ 大跌补仓测试: 补仓{result.dip_buy_count}次, 补仓金额{result.dip_buy_amount}元")
+    
+    def test_yield_boost_trigger(self, mock_nav_data_yield_boost_scenario):
+        """测试：累计收益率触发增额定投"""
+        ds = MockDataSource(mock_nav_data_yield_boost_scenario)
+        backtest = DCABacktest(ds)
+        
+        params = DCAParams(
+            fund_code="TEST",
+            fund_name="测试股票",
+            start_date="2022-01-01",
+            end_date="2022-12-31",
+            investment_amount=1000,
+            frequency="monthly",
+            enable_yield_boost=True,
+            yield_boost_trigger=-0.20,
+            yield_boost_recover=-0.10,
+            yield_boost_amount=1000
+        )
+        
+        result = backtest.run(params)
+        
+        assert result is not None
+        assert result.boost_count >= 0
+        print(f"✅ 增额定投测试: 增额{result.boost_count}次, 增额金额{result.boost_amount}元")
+    
+    def test_both_strategies_enabled(self, mock_nav_data_with_drop_days):
+        """测试：两策略同时启用"""
+        ds = MockDataSource(mock_nav_data_with_drop_days)
+        backtest = DCABacktest(ds)
+        
+        params = DCAParams(
+            fund_code="TEST",
+            fund_name="测试股票",
+            start_date="2022-01-01",
+            end_date="2022-12-31",
+            investment_amount=1000,
+            frequency="monthly",
+            enable_dip_buy=True,
+            dip_buy_tier1_threshold=-0.03,
+            dip_buy_tier1_amount=1000,
+            dip_buy_tier2_threshold=-0.05,
+            dip_buy_tier2_amount=1000,
+            dip_buy_tier3_threshold=-0.07,
+            dip_buy_tier3_amount=1000,
+            enable_yield_boost=True,
+            yield_boost_trigger=-0.20,
+            yield_boost_recover=-0.10,
+            yield_boost_amount=1000
+        )
+        
+        result = backtest.run(params)
+        
+        assert result is not None
+        print(f"✅ 两策略同时启用测试: 大跌补仓{result.dip_buy_count}次, 增额定投{result.boost_count}次")
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

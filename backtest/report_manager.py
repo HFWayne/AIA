@@ -87,6 +87,7 @@ class ReportManager:
                 'action': row['action'],
                 'nav': float(row['nav']),
                 'shares': float(row['shares']) if 'shares' in row else 0,
+                'invest_amount': float(row['invest_amount']) if 'invest_amount' in row else 0,
                 'total_shares': float(row['total_shares']),
                 'portfolio_value': float(row['portfolio_value']),
                 'return_rate': float(row['return_rate']),

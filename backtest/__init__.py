@@ -29,6 +29,19 @@ class BacktestConfig:
     take_profit_rate: float = 0.20
     max_drawdown_threshold: float = 0.10
     take_profit_sell_ratio: float = 0.5
+    
+    enable_dip_buy: bool = False
+    dip_buy_tier1_threshold: float = -0.03
+    dip_buy_tier1_amount: float = 1000.0
+    dip_buy_tier2_threshold: float = -0.05
+    dip_buy_tier2_amount: float = 1000.0
+    dip_buy_tier3_threshold: float = -0.07
+    dip_buy_tier3_amount: float = 1000.0
+    
+    enable_yield_boost: bool = False
+    yield_boost_trigger: float = -0.20
+    yield_boost_recover: float = -0.10
+    yield_boost_amount: float = 1000.0
 
 
 class FundBacktester:
@@ -59,7 +72,18 @@ class FundBacktester:
             enable_take_profit=config.enable_take_profit,
             take_profit_rate=config.take_profit_rate,
             max_drawdown_threshold=config.max_drawdown_threshold,
-            take_profit_sell_ratio=config.take_profit_sell_ratio
+            take_profit_sell_ratio=config.take_profit_sell_ratio,
+            enable_dip_buy=config.enable_dip_buy,
+            dip_buy_tier1_threshold=config.dip_buy_tier1_threshold,
+            dip_buy_tier1_amount=config.dip_buy_tier1_amount,
+            dip_buy_tier2_threshold=config.dip_buy_tier2_threshold,
+            dip_buy_tier2_amount=config.dip_buy_tier2_amount,
+            dip_buy_tier3_threshold=config.dip_buy_tier3_threshold,
+            dip_buy_tier3_amount=config.dip_buy_tier3_amount,
+            enable_yield_boost=config.enable_yield_boost,
+            yield_boost_trigger=config.yield_boost_trigger,
+            yield_boost_recover=config.yield_boost_recover,
+            yield_boost_amount=config.yield_boost_amount
         )
         return self.backtest.run(params)
     

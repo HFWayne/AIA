@@ -118,3 +118,25 @@ def mock_nav_data_weekly_trading():
     dates = pd.date_range('2022-01-01', periods=60, freq='B')  # 工作日，约3个月
     nav = np.linspace(10.0, 15.0, len(dates))
     return pd.DataFrame({'date': dates, 'nav': nav})
+
+
+@pytest.fixture
+def mock_nav_data_with_drop_days():
+    """大跌数据：用于测试单日大跌补仓策略
+    
+    包含单日大幅下跌（如-5%）的数据
+    """
+    dates = pd.date_range('2022-01-01', periods=10, freq='MS')
+    nav = [10.0, 11.0, 12.0, 13.0, 8.0, 7.5, 10.0, 11.0, 12.0, 13.0]  # 第5个月大跌
+    return pd.DataFrame({'date': dates, 'nav': nav})
+
+
+@pytest.fixture
+def mock_nav_data_yield_boost_scenario():
+    """累计收益率下降数据：用于测试增额定投策略
+    
+    股价持续下跌，导致累计收益率低于-20%
+    """
+    dates = pd.date_range('2022-01-01', periods=12, freq='MS')
+    nav = [10.0, 9.5, 9.0, 8.5, 8.0, 7.5, 7.0, 6.5, 6.0, 6.5, 7.0, 7.5]  # 持续下跌后回升
+    return pd.DataFrame({'date': dates, 'nav': nav})

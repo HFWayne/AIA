@@ -21,7 +21,7 @@ class DCAParams:
     investment_amount: float
     frequency: str = "monthly"
     day_of_month: int = 1
-    day_of_week: int = 1
+    day_of_week: int = 0
     
     enable_stop_loss: bool = False
     stop_loss_rate: float = 0.15
@@ -32,6 +32,19 @@ class DCAParams:
     
     stop_loss_sell_ratio: float = 1.0
     take_profit_sell_ratio: float = 0.5
+    
+    enable_dip_buy: bool = False
+    dip_buy_tier1_threshold: float = -0.03
+    dip_buy_tier1_amount: float = 1000.0
+    dip_buy_tier2_threshold: float = -0.05
+    dip_buy_tier2_amount: float = 1000.0
+    dip_buy_tier3_threshold: float = -0.07
+    dip_buy_tier3_amount: float = 1000.0
+    
+    enable_yield_boost: bool = False
+    yield_boost_trigger: float = -0.20
+    yield_boost_recover: float = -0.10
+    yield_boost_amount: float = 1000.0
 
 
 @dataclass
@@ -49,6 +62,10 @@ class BacktestResult:
     
     stop_loss_count: int = 0
     take_profit_count: int = 0
+    dip_buy_count: int = 0
+    dip_buy_amount: float = 0.0
+    boost_count: int = 0
+    boost_amount: float = 0.0
     strategy_params: dict = field(default_factory=dict)
 
 
@@ -107,7 +124,14 @@ class DCABacktest:
             'take_profit_rate': params.take_profit_rate,
             'max_drawdown_threshold': params.max_drawdown_threshold,
             'take_profit_sell_ratio': params.take_profit_sell_ratio,
+            'enable_dip_buy': params.enable_dip_buy,
+            'enable_yield_boost': params.enable_yield_boost,
         }
+        
+        dip_buy_count = len(trades[trades['action'] == 'buy_dip'])
+        dip_buy_amount = trades[trades['action'] == 'buy_dip']['total_invested'].sum() if dip_buy_count > 0 else 0
+        boost_count = len(trades[trades['action'] == 'buy_boost'])
+        boost_amount = trades[trades['action'] == 'buy_boost']['total_invested'].sum() if boost_count > 0 else 0
         
         return BacktestResult(
             total_invested=total_invested,
@@ -121,6 +145,10 @@ class DCABacktest:
             trades=trades,
             stop_loss_count=stop_loss_count,
             take_profit_count=take_profit_count,
+            dip_buy_count=dip_buy_count,
+            dip_buy_amount=dip_buy_amount,
+            boost_count=boost_count,
+            boost_amount=boost_amount,
             strategy_params=strategy_params
         )
     
@@ -134,6 +162,14 @@ class DCABacktest:
         total_invested = 0.0
         historical_high = 0.0
         in_watch_mode = False
+        boost_active = False
+        prev_invested = 0.0
+        
+        dip_buy_tiers = [
+            {'threshold': params.dip_buy_tier1_threshold, 'amount': params.dip_buy_tier1_amount},
+            {'threshold': params.dip_buy_tier2_threshold, 'amount': params.dip_buy_tier2_amount},
+            {'threshold': params.dip_buy_tier3_threshold, 'amount': params.dip_buy_tier3_amount},
+        ] if params.enable_dip_buy else []
         
         records = []
         
@@ -141,6 +177,8 @@ class DCABacktest:
             current_date = row['date']
             current_nav = row['nav']
             is_trade_day = current_date in trade_dates_set
+            
+            prev_nav = nav_data.iloc[idx - 1]['nav'] if idx > 0 else None
             
             current_value = holdings * current_nav
             current_return = (current_value - total_invested) / total_invested if total_invested > 0 else 0
@@ -181,22 +219,67 @@ class DCABacktest:
                             if holdings <= 0.01:
                                 in_watch_mode = False
             
+            dip_triggered = False
+            dip_amount = 0.0
+            invest_amount = 0.0
+            
+            if params.enable_dip_buy and prev_nav and holdings > 0 and action == 'hold':
+                daily_change = (current_nav - prev_nav) / prev_nav
+                
+                for tier in dip_buy_tiers:
+                    if daily_change <= tier['threshold']:
+                        dip_amount = tier['amount']
+                        invest_amount = dip_amount
+                        buy_shares = dip_amount / current_nav
+                        holdings += buy_shares
+                        total_invested += dip_amount
+                        dip_triggered = True
+                        action = 'buy_dip'
+                        reason = f'大跌补仓({daily_change*100:.1f}%)'
+                        logger.info(f"触发大跌补仓: {current_date}, 跌幅={daily_change*100:.2f}%")
+                        break
+            
+            if params.enable_yield_boost and holdings > 0 and action == 'hold':
+                if current_return <= params.yield_boost_trigger and not boost_active:
+                    boost_active = True
+                    logger.info(f"触发增额定投: {current_date}, 收益率={return_rate:.2f}%")
+                elif current_return >= params.yield_boost_recover and boost_active:
+                    boost_active = False
+                    logger.info(f"恢复原价投: {current_date}, 收益率={return_rate:.2f}%")
+            
             if is_trade_day and action == 'hold':
                 buy_amount = params.investment_amount
+                if boost_active:
+                    buy_amount += params.yield_boost_amount
+                
+                invest_amount = buy_amount
                 buy_shares = buy_amount / current_nav
                 holdings += buy_shares
                 total_invested += buy_amount
-                action = 'buy'
-                reason = '定投'
+                
+                if boost_active:
+                    action = 'buy_boost'
+                    reason = f'增额定投({return_rate:.1f}%)'
+                else:
+                    action = 'buy'
+                    reason = '定投'
             
             current_value = holdings * current_nav
+            
+            if action.startswith('buy'):
+                shares = invest_amount / current_nav
+            elif action.startswith('sell'):
+                shares = -(records[-1]['total_shares'] - holdings) if records else 0
+            else:
+                shares = 0.0
             
             records.append({
                 'date': current_date,
                 'nav': current_nav,
                 'action': action,
                 'reason': reason,
-                'shares': shares if action == 'buy' else (-(records[-1]['shares'] - holdings) if records and action.startswith('sell') else 0),
+                'shares': shares,
+                'invest_amount': invest_amount,
                 'total_shares': holdings,
                 'total_invested': total_invested,
                 'portfolio_value': current_value,
@@ -204,11 +287,6 @@ class DCABacktest:
             })
         
         df = pd.DataFrame(records)
-        
-        df.loc[df['action'] == 'buy', 'shares'] = params.investment_amount / df.loc[df['action'] == 'buy', 'nav']
-        df.loc[df['action'] == 'sell_profit', 'shares'] = -df.loc[df['action'] == 'sell_profit', 'total_shares'].shift(1) * params.take_profit_sell_ratio
-        df.loc[df['action'] == 'sell_stop', 'shares'] = -df.loc[df['action'] == 'sell_stop', 'total_shares'].shift(1) * params.stop_loss_sell_ratio
-        
         df['shares'] = df['shares'].fillna(0)
         
         return df[df['action'] != 'hold']

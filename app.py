@@ -177,12 +177,63 @@ def sidebar_params():
         take_profit_sell_ratio = st.sidebar.slider("卖出比例(%)", min_value=10, max_value=100, value=50) / 100
     
     st.sidebar.markdown("---")
+    st.sidebar.subheader("📉 补仓设置")
+    
+    enable_dip_buy = st.sidebar.checkbox("启用单日大跌补仓", value=False)
+    dip_buy_tier1_threshold = -0.03
+    dip_buy_tier1_amount = 1000.0
+    dip_buy_tier2_threshold = -0.05
+    dip_buy_tier2_amount = 1000.0
+    dip_buy_tier3_threshold = -0.07
+    dip_buy_tier3_amount = 1000.0
+    
+    if enable_dip_buy:
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            st.write("档位1: 跌幅>")
+            st.write("档位2: 跌幅>")
+            st.write("档位3: 跌幅>")
+        with col2:
+            tier1 = st.selectbox("t1", ["3%", "5%", "7%"], index=0, key="dip1")
+            tier2 = st.selectbox("t2", ["3%", "5%", "7%"], index=1, key="dip2")
+            tier3 = st.selectbox("t3", ["3%", "5%", "7%"], index=2, key="dip3")
+            tier_map = {"3%": -0.03, "5%": -0.05, "7%": -0.07}
+            dip_buy_tier1_threshold = tier_map.get(tier1, -0.03)
+            dip_buy_tier2_threshold = tier_map.get(tier2, -0.05)
+            dip_buy_tier3_threshold = tier_map.get(tier3, -0.07)
+        
+        col3, col4 = st.sidebar.columns(2)
+        with col3:
+            st.write("补仓金额:")
+        with col4:
+            dip_buy_tier1_amount = st.number_input("1", min_value=100, value=1000, step=100, key="dip_amt1")
+            dip_buy_tier2_amount = st.number_input("2", min_value=100, value=1000, step=100, key="dip_amt2")
+            dip_buy_tier3_amount = st.number_input("3", min_value=100, value=1000, step=100, key="dip_amt3")
+    
+    enable_yield_boost = st.sidebar.checkbox("启用累计收益率增额", value=False)
+    yield_boost_trigger = -0.20
+    yield_boost_recover = -0.10
+    yield_boost_amount = 1000.0
+    
+    if enable_yield_boost:
+        yield_boost_trigger = st.sidebar.slider("累计收益率低于(%)", min_value=-30, max_value=-5, value=-20) / 100
+        yield_boost_amount = st.sidebar.number_input("每次增额(元)", min_value=100, value=1000, step=100)
+        yield_boost_recover = st.sidebar.slider("收益率回升到(%)", min_value=-30, max_value=-5, value=-10) / 100
+        
+        if yield_boost_recover >= yield_boost_trigger:
+            st.sidebar.error("恢复阈值必须大于触发阈值")
+    
+    st.sidebar.markdown("---")
     st.sidebar.subheader("📡 数据源")
     data_source = st.sidebar.selectbox("选择数据源", AVAILABLE_SOURCES, index=0)
     
     return (start_date, end_date, amount, frequency, day_of_month, day_of_week, data_source,
             enable_stop_loss, stop_loss_rate, stop_loss_sell_ratio,
-            enable_take_profit, take_profit_rate, max_drawdown_threshold, take_profit_sell_ratio)
+            enable_take_profit, take_profit_rate, max_drawdown_threshold, take_profit_sell_ratio,
+            enable_dip_buy, dip_buy_tier1_threshold, dip_buy_tier1_amount,
+            dip_buy_tier2_threshold, dip_buy_tier2_amount,
+            dip_buy_tier3_threshold, dip_buy_tier3_amount,
+            enable_yield_boost, yield_boost_trigger, yield_boost_recover, yield_boost_amount)
 
 
 def plot_report_trades(report):
@@ -225,7 +276,8 @@ def plot_report_trades(report):
     return fig
 
 
-def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, slr, slsr, etp, tpr, mdt, tpsr):
+def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, slr, slsr, etp, tpr, mdt, tpsr,
+                        edb, dt1, da1, dt2, da2, dt3, da3, eyb, ybt, ybr, yba):
     """单股票回测页面"""
     col1, col2 = st.columns([1, 2.5])
     
@@ -264,7 +316,18 @@ def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, 
                     enable_take_profit=etp,
                     take_profit_rate=tpr,
                     max_drawdown_threshold=mdt,
-                    take_profit_sell_ratio=tpsr
+                    take_profit_sell_ratio=tpsr,
+                    enable_dip_buy=edb,
+                    dip_buy_tier1_threshold=dt1,
+                    dip_buy_tier1_amount=da1,
+                    dip_buy_tier2_threshold=dt2,
+                    dip_buy_tier2_amount=da2,
+                    dip_buy_tier3_threshold=dt3,
+                    dip_buy_tier3_amount=da3,
+                    enable_yield_boost=eyb,
+                    yield_boost_trigger=ybt,
+                    yield_boost_recover=ybr,
+                    yield_boost_amount=yba
                 )
                 
                 result = tester.single_fund(config)
@@ -284,7 +347,9 @@ def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, 
                         'enable_take_profit': etp,
                         'take_profit_rate': tpr,
                         'max_drawdown_threshold': mdt,
-                        'take_profit_sell_ratio': tpsr
+                        'take_profit_sell_ratio': tpsr,
+                        'enable_dip_buy': edb,
+                        'enable_yield_boost': eyb
                     }
                     st.session_state['current_result'] = result
                     st.session_state['current_fund_name'] = fund_name
@@ -313,9 +378,20 @@ def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, 
             st.pyplot(fig)
             
             with st.expander("📋 查看交易记录", expanded=False):
-                trades_display = current_result.trades[['date', 'action', 'nav', 'shares', 'total_shares', 'portfolio_value', 'return_rate', 'reason']].copy()
-                trades_display.columns = ['日期', '操作', '净值(元)', '份额变化(份)', '累计份额(份)', '组合价值(元)', '收益率(%)', '原因']
-                trades_display['日期'] = pd.to_datetime(trades_display['日期']).astype(str).str[:10]
+                trades_display = current_result.trades.copy()
+                trades_display['date'] = pd.to_datetime(trades_display['date']).astype(str).str[:10]
+                
+                display_cols = ['date', 'action', 'nav', 'shares', 'total_shares', 'portfolio_value', 'return_rate', 'reason']
+                if 'invest_amount' in trades_display.columns:
+                    display_cols.insert(5, 'invest_amount')
+                
+                trades_display = trades_display[display_cols].copy()
+                trades_display.columns = ['日期', '操作', '净值(元)', '份额变化(份)', '累计份额(份)', '投入金额(元)', '组合价值(元)', '收益率(%)', '原因']
+                trades_display['份额变化(份)'] = trades_display['份额变化(份)'].round(2)
+                if '投入金额(元)' in trades_display.columns:
+                    trades_display['投入金额(元)'] = trades_display['投入金额(元)'].round(0).astype(int)
+                trades_display['累计份额(份)'] = trades_display['累计份额(份)'].round(2)
+                trades_display['组合价值(元)'] = trades_display['组合价值(元)'].round(0).astype(int)
                 st.dataframe(trades_display, use_container_width=True, height=300)
         elif run_btn:
             st.error("获取数据失败，请检查股票代码或尝试其他数据源")
@@ -509,8 +585,19 @@ def page_reports():
                 with st.expander("📋 查看交易记录"):
                     trades_df = pd.DataFrame(report.trades)
                     trades_df['date'] = pd.to_datetime(trades_df['date']).dt.strftime('%Y-%m-%d')
-                    trades_df.columns = ['日期', '操作', '净值(元)', '份额变化(份)', '累计份额(份)', '组合价值(元)', '收益率(%)', '原因']
-                    st.dataframe(trades_df, use_container_width=True, height=300)
+                    
+                    display_cols = ['date', 'action', 'nav', 'shares', 'total_shares', 'portfolio_value', 'return_rate', 'reason']
+                    if 'invest_amount' in trades_df.columns:
+                        display_cols.insert(5, 'invest_amount')
+                    
+                    trades_display = trades_df[display_cols].copy()
+                    trades_display.columns = ['日期', '操作', '净值(元)', '份额变化(份)', '累计份额(份)', '投入金额(元)', '组合价值(元)', '收益率(%)', '原因']
+                    trades_display['份额变化(份)'] = trades_display['份额变化(份)'].round(2)
+                    if '投入金额(元)' in trades_display.columns:
+                        trades_display['投入金额(元)'] = trades_display['投入金额(元)'].round(0).astype(int)
+                    trades_display['累计份额(份)'] = trades_display['累计份额(份)'].round(2)
+                    trades_display['组合价值(元)'] = trades_display['组合价值(元)'].round(0).astype(int)
+                    st.dataframe(trades_display, use_container_width=True, height=300)
     
     with tab3:
         st.markdown('<div class="section-header">📈 报告对比</div>', unsafe_allow_html=True)
@@ -600,16 +687,25 @@ def page_reports():
 def main():
     st.markdown('<div class="main-header">📈 股票定投回测工具</div>', unsafe_allow_html=True)
     
+    params = sidebar_params()
     (start_date, end_date, amount, frequency, day_of_month, day_of_week, data_source,
      enable_stop_loss, stop_loss_rate, stop_loss_sell_ratio,
-     enable_take_profit, take_profit_rate, max_drawdown_threshold, take_profit_sell_ratio) = sidebar_params()
+     enable_take_profit, take_profit_rate, max_drawdown_threshold, take_profit_sell_ratio,
+     enable_dip_buy, dip_buy_tier1_threshold, dip_buy_tier1_amount,
+     dip_buy_tier2_threshold, dip_buy_tier2_amount,
+     dip_buy_tier3_threshold, dip_buy_tier3_amount,
+     enable_yield_boost, yield_boost_trigger, yield_boost_recover, yield_boost_amount) = params
     
     tab1, tab2, tab3 = st.tabs(["📊 单股票回测", "📈 多股票对比", "📁 报告管理"])
     
     with tab1:
         page_single_backtest(start_date, end_date, amount, frequency, day_of_month, day_of_week, data_source,
                            enable_stop_loss, stop_loss_rate, stop_loss_sell_ratio,
-                           enable_take_profit, take_profit_rate, max_drawdown_threshold, take_profit_sell_ratio)
+                           enable_take_profit, take_profit_rate, max_drawdown_threshold, take_profit_sell_ratio,
+                           enable_dip_buy, dip_buy_tier1_threshold, dip_buy_tier1_amount,
+                           dip_buy_tier2_threshold, dip_buy_tier2_amount,
+                           dip_buy_tier3_threshold, dip_buy_tier3_amount,
+                           enable_yield_boost, yield_boost_trigger, yield_boost_recover, yield_boost_amount)
     
     with tab2:
         page_compare(start_date, end_date, amount, enable_stop_loss, stop_loss_rate,
