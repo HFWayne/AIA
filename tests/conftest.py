@@ -107,3 +107,14 @@ def mock_nav_data_month_start_on_3rd():
     dates = pd.Series(dates)
     nav = np.linspace(10.0, 15.0, len(dates))
     return pd.DataFrame({'date': dates, 'nav': nav})
+
+
+@pytest.fixture
+def mock_nav_data_weekly_trading():
+    """周定投测试数据：每日都有数据
+    
+    用于验证周定投逻辑
+    """
+    dates = pd.date_range('2022-01-01', periods=60, freq='B')  # 工作日，约3个月
+    nav = np.linspace(10.0, 15.0, len(dates))
+    return pd.DataFrame({'date': dates, 'nav': nav})

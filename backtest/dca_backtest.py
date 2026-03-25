@@ -220,9 +220,7 @@ class DCABacktest:
         if params.frequency == "monthly":
             dates = self._get_monthly_trade_dates(nav_data, params.day_of_month)
         elif params.frequency == "weekly":
-            for date in nav_data['date']:
-                if date.weekday() == params.day_of_week:
-                    dates.append(date)
+            dates = self._get_weekly_trade_dates(nav_data, params.day_of_week)
         else:
             dates = nav_data['date'].tolist()
         
@@ -253,6 +251,48 @@ class DCABacktest:
                 selected_dates.append(group['date'].iloc[0])
         
         return sorted(selected_dates)
+    
+    def _get_weekly_trade_dates(self, nav_data: pd.DataFrame, day_of_week: int) -> List:
+        """获取每周定投日期，支持顺延到最近交易日
+        
+        如果指定周几（如周一）恰好是节假日没有交易数据，
+        则顺延到该周第一个可用的交易日
+        """
+        if nav_data.empty:
+            return []
+        
+        nav_data = nav_data.sort_values('date').reset_index(drop=True)
+        
+        selected_dates = []
+        
+        nav_data['week_key'] = nav_data['date'].dt.isocalendar().week
+        nav_data['year'] = nav_data['date'].dt.year
+        
+        for _, row in nav_data.iterrows():
+            date = row['date']
+            week_key = (date.year, date.isocalendar().week)
+            
+            if date.weekday() == day_of_week:
+                selected_dates.append(date)
+            elif not any(d.isocalendar().week == week_key[1] and d.year == week_key[0] for d in selected_dates):
+                first_day_of_week = nav_data[
+                    (nav_data['date'].dt.year == week_key[0]) & 
+                    (nav_data['date'].dt.isocalendar().week == week_key[1])
+                ]
+                if not first_day_of_week.empty:
+                    selected_dates.append(first_day_of_week['date'].iloc[0])
+        
+        selected_dates.sort()
+        
+        final_dates = []
+        seen_weeks = set()
+        for d in selected_dates:
+            week_key = (d.year, d.isocalendar().week)
+            if week_key not in seen_weeks:
+                final_dates.append(d)
+                seen_weeks.add(week_key)
+        
+        return final_dates
     
     def _calculate_max_drawdown(self, values: pd.Series) -> float:
         """计算最大回撤"""

@@ -103,6 +103,32 @@ class TestDCABacktest:
         assert result.total_invested == 12000, f"总投入应为12000，实际为{result.total_invested}"
         print(f"✅ 月定投顺延测试通过: 定投{result.investment_count}次, 总投入={result.total_invested}元")
     
+    def test_weekly_frequency(self, mock_nav_data_weekly_trading):
+        """测试4: 周定投频率测试
+        
+        使用工作日数据测试，确保每周只定投一次
+        """
+        ds = MockDataSource(mock_nav_data_weekly_trading)
+        backtest = DCABacktest(ds)
+        
+        params = DCAParams(
+            fund_code="TEST",
+            fund_name="测试股票",
+            start_date="2022-01-01",
+            end_date="2022-03-31",
+            investment_amount=1000,
+            frequency="weekly",
+            day_of_week=0  # 周一定投
+        )
+        
+        result = backtest.run(params)
+        
+        assert result is not None
+        # 约3个月应该有12-13次周定投
+        assert result.investment_count <= 15, f"周定投次数过多: {result.investment_count}"
+        assert result.investment_count >= 10, f"周定投次数过少: {result.investment_count}"
+        print(f"✅ 周定投测试通过: 定投{result.investment_count}次, 总投入={result.total_invested}元")
+    
     def test_stop_loss_triggered(self, mock_nav_data_stop_loss_scenario):
         """测试2: 止损触发 - 股价持续下跌"""
         ds = MockDataSource(mock_nav_data_stop_loss_scenario)

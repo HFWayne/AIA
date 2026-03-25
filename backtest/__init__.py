@@ -17,6 +17,8 @@ class BacktestConfig:
     end_date: str
     investment_amount: float
     frequency: str = 'monthly'
+    day_of_month: int = 1
+    day_of_week: int = 0
     data_source: str = None
     
     enable_stop_loss: bool = False
@@ -49,6 +51,8 @@ class FundBacktester:
             end_date=config.end_date,
             investment_amount=config.investment_amount,
             frequency=config.frequency,
+            day_of_month=config.day_of_month,
+            day_of_week=config.day_of_week,
             enable_stop_loss=config.enable_stop_loss,
             stop_loss_rate=config.stop_loss_rate,
             stop_loss_sell_ratio=config.stop_loss_sell_ratio,

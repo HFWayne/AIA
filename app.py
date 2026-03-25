@@ -145,6 +145,15 @@ def sidebar_params():
     freq_map = {"每月": "monthly", "每周": "weekly", "每日": "daily"}
     frequency = freq_map[frequency]
     
+    day_of_month = 1
+    day_of_week = 0
+    if frequency == "monthly":
+        day_of_month = st.sidebar.selectbox("每月定投日期", list(range(1, 29)), index=0) + 1 - 1
+    elif frequency == "weekly":
+        day_of_week = st.sidebar.selectbox("每周定投日", ["周一", "周二", "周三", "周四", "周五"], index=0)
+        day_of_week_map = {"周一": 0, "周二": 1, "周三": 2, "周四": 3, "周五": 4}
+        day_of_week = day_of_week_map[day_of_week]
+    
     st.sidebar.markdown("---")
     st.sidebar.subheader("📉 止损设置")
     enable_stop_loss = st.sidebar.checkbox("启用止损", value=False)
@@ -171,7 +180,7 @@ def sidebar_params():
     st.sidebar.subheader("📡 数据源")
     data_source = st.sidebar.selectbox("选择数据源", AVAILABLE_SOURCES, index=0)
     
-    return (start_date, end_date, amount, frequency, data_source,
+    return (start_date, end_date, amount, frequency, day_of_month, day_of_week, data_source,
             enable_stop_loss, stop_loss_rate, stop_loss_sell_ratio,
             enable_take_profit, take_profit_rate, max_drawdown_threshold, take_profit_sell_ratio)
 
@@ -216,7 +225,7 @@ def plot_report_trades(report):
     return fig
 
 
-def page_single_backtest(sd, ed, amt, freq, ds, esl, slr, slsr, etp, tpr, mdt, tpsr):
+def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, slr, slsr, etp, tpr, mdt, tpsr):
     """单股票回测页面"""
     col1, col2 = st.columns([1, 2.5])
     
@@ -246,6 +255,8 @@ def page_single_backtest(sd, ed, amt, freq, ds, esl, slr, slsr, etp, tpr, mdt, t
                     end_date=str(ed),
                     investment_amount=amt,
                     frequency=freq,
+                    day_of_month=day_of_month,
+                    day_of_week=day_of_week,
                     data_source=ds,
                     enable_stop_loss=esl,
                     stop_loss_rate=slr,
@@ -265,6 +276,8 @@ def page_single_backtest(sd, ed, amt, freq, ds, esl, slr, slsr, etp, tpr, mdt, t
                         'start_date': str(sd),
                         'end_date': str(ed),
                         'frequency': freq,
+                        'day_of_month': day_of_month,
+                        'day_of_week': day_of_week,
                         'enable_stop_loss': esl,
                         'stop_loss_rate': slr,
                         'stop_loss_sell_ratio': slsr,
@@ -587,14 +600,14 @@ def page_reports():
 def main():
     st.markdown('<div class="main-header">📈 股票定投回测工具</div>', unsafe_allow_html=True)
     
-    (start_date, end_date, amount, frequency, data_source,
+    (start_date, end_date, amount, frequency, day_of_month, day_of_week, data_source,
      enable_stop_loss, stop_loss_rate, stop_loss_sell_ratio,
      enable_take_profit, take_profit_rate, max_drawdown_threshold, take_profit_sell_ratio) = sidebar_params()
     
     tab1, tab2, tab3 = st.tabs(["📊 单股票回测", "📈 多股票对比", "📁 报告管理"])
     
     with tab1:
-        page_single_backtest(start_date, end_date, amount, frequency, data_source,
+        page_single_backtest(start_date, end_date, amount, frequency, day_of_month, day_of_week, data_source,
                            enable_stop_loss, stop_loss_rate, stop_loss_sell_ratio,
                            enable_take_profit, take_profit_rate, max_drawdown_threshold, take_profit_sell_ratio)
     
