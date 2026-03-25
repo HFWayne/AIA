@@ -218,9 +218,7 @@ class DCABacktest:
         dates = []
         
         if params.frequency == "monthly":
-            for date in nav_data['date']:
-                if date.day >= params.day_of_month:
-                    dates.append(date)
+            dates = self._get_monthly_trade_dates(nav_data, params.day_of_month)
         elif params.frequency == "weekly":
             for date in nav_data['date']:
                 if date.weekday() == params.day_of_week:
@@ -229,6 +227,32 @@ class DCABacktest:
             dates = nav_data['date'].tolist()
         
         return dates if dates else [nav_data['date'].iloc[0]]
+    
+    def _get_monthly_trade_dates(self, nav_data: pd.DataFrame, day_of_month: int) -> List:
+        """获取每月定投日期，支持顺延到最近交易日
+        
+        如果指定日期（如每月1日）恰好是周末/节假日没有交易数据，
+        则顺延到该月第一个可用的交易日
+        """
+        if nav_data.empty:
+            return []
+        
+        nav_data = nav_data.sort_values('date').reset_index(drop=True)
+        
+        selected_dates = []
+        
+        nav_data['month_key'] = nav_data['date'].dt.to_period('M')
+        
+        for month_key, group in nav_data.groupby('month_key'):
+            group = group.sort_values('date')
+            
+            target_day = group[group['date'].dt.day == day_of_month]
+            if not target_day.empty:
+                selected_dates.append(target_day['date'].iloc[0])
+            else:
+                selected_dates.append(group['date'].iloc[0])
+        
+        return sorted(selected_dates)
     
     def _calculate_max_drawdown(self, values: pd.Series) -> float:
         """计算最大回撤"""

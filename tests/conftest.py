@@ -81,3 +81,29 @@ def mock_nav_data_take_profit_fast():
     nav = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
            16.0, 17.0, 18.0, 19.0, 20.0, 19.0]  # 涨到20后回撤5%
     return pd.DataFrame({'date': dates, 'nav': nav})
+
+
+@pytest.fixture
+def mock_nav_data_daily_trading_days():
+    """每日交易日数据：用于验证月定投次数是否正确
+    
+    生成约2年的日线数据（跳过周末），验证每月只定投一次
+    """
+    dates = pd.date_range('2022-01-01', '2023-12-31', freq='B')  # 工作日
+    nav = np.linspace(10.0, 15.0, len(dates))
+    return pd.DataFrame({'date': dates, 'nav': nav})
+
+
+@pytest.fixture
+def mock_nav_data_month_start_on_3rd():
+    """月定投顺延测试数据：
+    
+    生成12个月的数据，每月只有1个交易日（3日）
+    用于验证顺延逻辑：指定1日但无数据时，应顺延到该月第一个交易日
+    """
+    dates = []
+    for month in range(1, 13):
+        dates.append(pd.Timestamp(f'2022-{month:02d}-03'))
+    dates = pd.Series(dates)
+    nav = np.linspace(10.0, 15.0, len(dates))
+    return pd.DataFrame({'date': dates, 'nav': nav})

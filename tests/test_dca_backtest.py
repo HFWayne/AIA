@@ -45,6 +45,64 @@ class TestDCABacktest:
         assert result.return_rate > 0  # 应该盈利
         print(f"✅ 简单DCA测试通过: 收益率={result.return_rate:.2f}%")
     
+    def test_monthly_frequency_exact_count(self, mock_nav_data_daily_trading_days):
+        """测试2: 验证月定投频率正确 - 使用日线数据验证每月只定投一次
+        
+        使用日线数据测试，确保每月只定投一次（默认1日），
+        而不是所有 day>=1 的交易日都定投（之前的bug）
+        """
+        ds = MockDataSource(mock_nav_data_daily_trading_days)
+        backtest = DCABacktest(ds)
+        
+        params = DCAParams(
+            fund_code="TEST",
+            fund_name="测试股票",
+            start_date="2022-01-01",
+            end_date="2023-12-31",
+            investment_amount=1000,
+            frequency="monthly",
+            day_of_month=1  # 每月1日定投
+        )
+        
+        result = backtest.run(params)
+        
+        assert result is not None
+        # 关键验证：定投次数应该远少于交易日数量（520个）
+        # 如果bug存在会投500+次，修复后只有17次（因为周末跳过）
+        assert result.investment_count < 100, f"月定投次数过多: {result.investment_count}，疑似bug"
+        assert result.investment_count >= 10, f"月定投次数过少: {result.investment_count}"
+        # 总投入应该是 1000 * 定投次数（约17000元）
+        assert result.total_invested < 100000, f"总投入过多: {result.total_invested}，疑似bug"
+        print(f"✅ 月定投次数正确: {result.investment_count}次, 总投入={result.total_invested}元")
+    
+    def test_monthly_rollover_logic(self, mock_nav_data_month_start_on_3rd):
+        """测试3: 验证月定投顺延逻辑
+        
+        如果指定日期（如1日）是周末无数据，应该顺延到该月第一个交易日
+        数据从每月3日开始，所以应该选3日
+        """
+        ds = MockDataSource(mock_nav_data_month_start_on_3rd)
+        backtest = DCABacktest(ds)
+        
+        params = DCAParams(
+            fund_code="TEST",
+            fund_name="测试股票",
+            start_date="2022-01-01",
+            end_date="2022-12-31",
+            investment_amount=1000,
+            frequency="monthly",
+            day_of_month=1  # 期望1日定投，但1日无数据应顺延
+        )
+        
+        result = backtest.run(params)
+        
+        assert result is not None
+        # 12个月应该有12次定投
+        assert result.investment_count == 12, f"定投次数应为12，实际为{result.investment_count}"
+        # 总投入应为12000元
+        assert result.total_invested == 12000, f"总投入应为12000，实际为{result.total_invested}"
+        print(f"✅ 月定投顺延测试通过: 定投{result.investment_count}次, 总投入={result.total_invested}元")
+    
     def test_stop_loss_triggered(self, mock_nav_data_stop_loss_scenario):
         """测试2: 止损触发 - 股价持续下跌"""
         ds = MockDataSource(mock_nav_data_stop_loss_scenario)
