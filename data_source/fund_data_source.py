@@ -101,7 +101,7 @@ class FundDataSource:
                 try:
                     self._apply_delay()
                     logger.info(f"Trying tushare daily {fund_code}.{exchange}")
-                    df = self.pro.daily(ts_code=f"{fund_code}.{exchange}", start_date=start_date, end_date=end_date)
+                    df = self.pro.daily(ts_code=f"{fund_code}.{exchange}", start_date=start_date, end_date=end_date, adj='hfq')
                     
                     if df is not None and not df.empty:
                         df = df.rename(columns={
@@ -191,7 +191,7 @@ class FundDataSource:
                             start_date=start_str,
                             end_date=end_str,
                             frequency="d",
-                            adjustflag="3"
+                            adjustflag="2"
                         )
                         
                         logger.info(f"Baostock result: error_code={rs.error_code}")
