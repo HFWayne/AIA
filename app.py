@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from datetime import date
 
 from backtest import FundBacktester, BacktestConfig
+from backtest.dca_backtest import BacktestResult
 from backtest.visualization import BacktestVisualizer
 from data_source.config import DATA_SOURCE, AVAILABLE_SOURCES
 from backtest.report_manager import ReportManager
@@ -145,14 +146,14 @@ def sidebar_params():
     freq_map = {"每月": "monthly", "每周": "weekly", "每日": "daily"}
     frequency = freq_map[frequency]
     
-    day_of_month = 1
-    day_of_week = 0
+    day_of_month: int = 1
+    day_of_week: int = 0
     if frequency == "monthly":
-        day_of_month = st.sidebar.selectbox("每月定投日期", list(range(1, 29)), index=0) + 1 - 1
+        day_of_month = st.sidebar.selectbox("每月定投日期", list(range(1, 29)), index=0)
     elif frequency == "weekly":
-        day_of_week = st.sidebar.selectbox("每周定投日", ["周一", "周二", "周三", "周四", "周五"], index=0)
+        day_of_week_str: str = st.sidebar.selectbox("每周定投日", ["周一", "周二", "周三", "周四", "周五"], index=0)
         day_of_week_map = {"周一": 0, "周二": 1, "周三": 2, "周四": 3, "周五": 4}
-        day_of_week = day_of_week_map[day_of_week]
+        day_of_week = day_of_week_map[day_of_week_str]
     
     st.sidebar.markdown("---")
     st.sidebar.subheader("📉 止损设置")
@@ -392,7 +393,7 @@ def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, 
                     trades_display['投入金额(元)'] = trades_display['投入金额(元)'].round(0).astype(int)
                 trades_display['累计份额(份)'] = trades_display['累计份额(份)'].round(2)
                 trades_display['组合价值(元)'] = trades_display['组合价值(元)'].round(0).astype(int)
-                st.dataframe(trades_display, use_container_width=True, height=300)
+                st.dataframe(trades_display, width='stretch', height=300)
         elif run_btn:
             st.error("获取数据失败，请检查股票代码或尝试其他数据源")
         else:
@@ -467,7 +468,7 @@ def page_compare(sd2, ed2, amt2, esl, slr, etp, tpr, mdt, tpsr, ds):
                         for name, r in results.items()
                     ])
                     
-                    st.dataframe(comp_df, use_container_width=True, hide_index=True)
+                    st.dataframe(comp_df, width='stretch', hide_index=True)
                     
                     st.markdown("### ")
                     visualizer = BacktestVisualizer()
@@ -597,7 +598,7 @@ def page_reports():
                         trades_display['投入金额(元)'] = trades_display['投入金额(元)'].round(0).astype(int)
                     trades_display['累计份额(份)'] = trades_display['累计份额(份)'].round(2)
                     trades_display['组合价值(元)'] = trades_display['组合价值(元)'].round(0).astype(int)
-                    st.dataframe(trades_display, use_container_width=True, height=300)
+                    st.dataframe(trades_display, width='stretch', height=300)
     
     with tab3:
         st.markdown('<div class="section-header">📈 报告对比</div>', unsafe_allow_html=True)
@@ -612,6 +613,7 @@ def page_reports():
             
             if len(selected_ids) >= 2:
                 selected_reports = [rm.load_report(rid) for rid in selected_ids]
+                valid_reports = [r for r in selected_reports if r is not None]
                 
                 comp_df = pd.DataFrame([
                     {
@@ -627,21 +629,21 @@ def page_reports():
                         '止损次数': r.result['stop_loss_count'],
                         '止盈次数': r.result['take_profit_count']
                     }
-                    for r in selected_reports
+                    for r in valid_reports
                 ])
                 
-                st.dataframe(comp_df, use_container_width=True, hide_index=True)
+                st.dataframe(comp_df, width='stretch', hide_index=True)
                 
                 st.markdown("### ")
                 
                 fig, axes = plt.subplots(2, 2, figsize=(14, 10), dpi=100)
                 
-                names = [r.name for r in selected_reports]
+                names = [r.name for r in valid_reports]
                 
                 ax1 = axes[0, 0]
                 x = range(len(names))
-                invested = [r.result['total_invested'] for r in selected_reports]
-                final = [r.result['final_value'] for r in selected_reports]
+                invested = [r.result['total_invested'] for r in valid_reports]
+                final = [r.result['final_value'] for r in valid_reports]
                 width = 0.35
                 ax1.bar([i - width/2 for i in x], invested, width, label='总投入', color='steelblue')
                 ax1.bar([i + width/2 for i in x], final, width, label='最终价值', color='coral')
@@ -653,7 +655,7 @@ def page_reports():
                 ax1.grid(True, alpha=0.3)
                 
                 ax2 = axes[0, 1]
-                returns = [r.result['return_rate'] for r in selected_reports]
+                returns = [r.result['return_rate'] for r in valid_reports]
                 colors = ['green' if r >= 0 else 'red' for r in returns]
                 ax2.bar(names, returns, color=colors)
                 ax2.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
@@ -664,7 +666,7 @@ def page_reports():
                     ax2.text(i, v + 1 if v >= 0 else v - 3, f'{v:.1f}%', ha='center', fontsize=9)
                 
                 ax3 = axes[1, 0]
-                annual = [r.result['annual_return'] for r in selected_reports]
+                annual = [r.result['annual_return'] for r in valid_reports]
                 colors = ['green' if r >= 0 else 'red' for r in annual]
                 ax3.bar(names, annual, color=colors)
                 ax3.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
@@ -673,7 +675,7 @@ def page_reports():
                 ax3.grid(True, alpha=0.3)
                 
                 ax4 = axes[1, 1]
-                drawdowns = [r.result['max_drawdown'] for r in selected_reports]
+                drawdowns = [r.result['max_drawdown'] for r in valid_reports]
                 ax4.barh(names, drawdowns, color='orange')
                 ax4.set_xlabel('最大回撤(%)')
                 ax4.set_title('最大回撤对比')

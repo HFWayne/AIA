@@ -4,12 +4,12 @@
 """
 
 import json
-import os
 import uuid
 from datetime import datetime
 from dataclasses import dataclass, asdict
 from typing import Optional, List
 from pathlib import Path
+from backtest.dca_backtest import BacktestResult
 
 
 @dataclass
@@ -39,12 +39,11 @@ class Report:
 class ReportManager:
     """报告管理器"""
 
-    def __init__(self, reports_dir: str = None):
+    def __init__(self, reports_dir: Optional[str] = None):
         if reports_dir is None:
-            reports_dir = Path(__file__).parent.parent / "reports"
+            self.reports_dir: Path = Path(__file__).parent.parent / "reports"
         else:
-            reports_dir = Path(reports_dir)
-        self.reports_dir = reports_dir
+            self.reports_dir = Path(reports_dir)
         self.reports_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_report_path(self, report_id: str) -> Path:
@@ -69,7 +68,7 @@ class ReportManager:
 
         return "_".join(parts)
 
-    def save_report(self, result, name: str = None) -> str:
+    def save_report(self, result: BacktestResult, name: Optional[str] = None) -> str:
         """保存报告，返回报告ID"""
         report_id = str(uuid.uuid4())[:8]
 
@@ -136,7 +135,7 @@ class ReportManager:
 
         return Report.from_dict(data)
 
-    def list_reports(self, fund_code: str = None, search: str = None) -> List[Report]:
+    def list_reports(self, fund_code: Optional[str] = None, search: Optional[str] = None) -> List[Report]:
         """列出所有报告"""
         reports = []
 

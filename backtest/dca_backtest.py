@@ -1,11 +1,10 @@
 import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Tuple
+from datetime import datetime
+from typing import Optional, List, Dict
 from dataclasses import dataclass, field
 import logging
 
-from data_source.fund_data_source import FundDataSource, FUND_CODES
+from data_source.fund_data_source import FundDataSource
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -72,7 +71,7 @@ class BacktestResult:
 class DCABacktest:
     """定期定额投资回测（支持止损止盈策略）"""
     
-    def __init__(self, data_source: FundDataSource = None):
+    def __init__(self, data_source: Optional[FundDataSource] = None):
         self.ds = data_source or FundDataSource()
     
     def run(self, params: DCAParams) -> Optional[BacktestResult]:
@@ -178,7 +177,7 @@ class DCABacktest:
             current_nav = row['nav']
             is_trade_day = current_date in trade_dates_set
             
-            prev_nav = nav_data.iloc[idx - 1]['nav'] if idx > 0 else None
+            prev_nav: Optional[float] = nav_data.iloc[idx - 1]['nav'] if idx > 0 else None
             
             current_value = holdings * current_nav
             current_return = (current_value - total_invested) / total_invested if total_invested > 0 else 0
@@ -291,7 +290,7 @@ class DCABacktest:
         
         return df[df['action'] != 'hold']
     
-    def _get_trade_dates(self, nav_data: pd.DataFrame, params: DCAParams) -> List:
+    def _get_trade_dates(self, nav_data: pd.DataFrame, params: DCAParams) -> List[datetime]:
         """获取定投日期列表"""
         dates = []
         
@@ -304,7 +303,7 @@ class DCABacktest:
         
         return dates if dates else [nav_data['date'].iloc[0]]
     
-    def _get_monthly_trade_dates(self, nav_data: pd.DataFrame, day_of_month: int) -> List:
+    def _get_monthly_trade_dates(self, nav_data: pd.DataFrame, day_of_month: int) -> List[datetime]:
         """获取每月定投日期，支持顺延到最近交易日
         
         如果指定日期（如每月1日）恰好是周末/节假日没有交易数据，
@@ -330,7 +329,7 @@ class DCABacktest:
         
         return sorted(selected_dates)
     
-    def _get_weekly_trade_dates(self, nav_data: pd.DataFrame, day_of_week: int) -> List:
+    def _get_weekly_trade_dates(self, nav_data: pd.DataFrame, day_of_week: int) -> List[datetime]:
         """获取每周定投日期，支持顺延到最近交易日
         
         如果指定周几（如周一）恰好是节假日没有交易数据，
@@ -414,7 +413,7 @@ class DCABacktest:
 
 def run_single_fund_backtest(fund_code: str, fund_name: str, start_date: str, end_date: str,
                                investment_amount: float = 1000, frequency: str = "monthly",
-                               data_source: str = None, **strategy_kwargs) -> Optional[BacktestResult]:
+                               data_source: Optional[str] = None, **strategy_kwargs) -> Optional[BacktestResult]:
     """便捷函数：运行单个基金回测"""
     ds = FundDataSource(preferred_source=data_source)
     backtest = DCABacktest(ds)

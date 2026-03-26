@@ -2,11 +2,10 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import pandas as pd
 import numpy as np
-from typing import Optional, List, Dict
-from datetime import datetime
+from typing import Optional, Dict, Any
 import os
 
-from backtest.dca_backtest import BacktestResult, DCAParams
+from backtest.dca_backtest import BacktestResult
 
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun']
 plt.rcParams['axes.unicode_minus'] = False
@@ -21,7 +20,7 @@ class BacktestVisualizer:
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
     
-    def plot_single_fund(self, result: BacktestResult, title: str = None, save_path: str = None):
+    def plot_single_fund(self, result: BacktestResult, title: Optional[str] = None, save_path: Optional[str] = None):
         """绘制单个基金回测结果"""
         fig = plt.figure(figsize=(16, 12))
         
@@ -36,10 +35,10 @@ class BacktestVisualizer:
         ax1.plot(trades['date'], trades['total_invested'], label='累计投入', color='blue', linewidth=2)
         ax1.plot(trades['date'], trades['portfolio_value'], label='资产总值', color='green', linewidth=2)
         ax1.fill_between(trades['date'], trades['total_invested'], trades['portfolio_value'], 
-                         where=trades['portfolio_value'] >= trades['total_invested'],
+                         where=(trades['portfolio_value'] >= trades['total_invested']).tolist(),
                          alpha=0.3, color='green', label='盈利')
         ax1.fill_between(trades['date'], trades['total_invested'], trades['portfolio_value'],
-                         where=trades['portfolio_value'] < trades['total_invested'],
+                         where=(trades['portfolio_value'] < trades['total_invested']).tolist(),
                          alpha=0.3, color='red', label='亏损')
         ax1.set_title('投入与收益曲线', fontsize=12)
         ax1.set_xlabel('日期')
@@ -54,9 +53,9 @@ class BacktestVisualizer:
         ax2.plot(trades['date'], trades['return_rate'], color='purple', linewidth=2)
         ax2.axhline(y=0, color='black', linestyle='--', alpha=0.5)
         ax2.fill_between(trades['date'], 0, trades['return_rate'], 
-                         where=trades['return_rate'] >= 0, alpha=0.3, color='green')
+                         where=(trades['return_rate'] >= 0).tolist(), alpha=0.3, color='green')
         ax2.fill_between(trades['date'], 0, trades['return_rate'],
-                         where=trades['return_rate'] < 0, alpha=0.3, color='red')
+                         where=(trades['return_rate'] < 0).tolist(), alpha=0.3, color='red')
         ax2.set_title('收益率走势', fontsize=12)
         ax2.set_xlabel('日期')
         ax2.set_ylabel('收益率 (%)')
@@ -89,7 +88,6 @@ class BacktestVisualizer:
             plt.savefig(save_path, dpi=150, bbox_inches='tight')
             print(f"图表已保存: {save_path}")
         
-        plt.show()
         return fig
     
     def _plot_kline(self, ax, nav_data):
@@ -134,7 +132,7 @@ class BacktestVisualizer:
             ax.text(0.5, 0.5, f'K线绘制失败: {str(e)}', ha='center', va='center')
             ax.axis('off')
     
-    def plot_portfolio(self, portfolio_results: Dict, save_path: str = None):
+    def plot_portfolio(self, portfolio_results: Dict[str, Any], save_path: Optional[str] = None):
         """绘制组合回测结果"""
         fig, axes = plt.subplots(1, 2, figsize=(14, 6))
         
@@ -186,15 +184,14 @@ class BacktestVisualizer:
             plt.savefig(save_path, dpi=150, bbox_inches='tight')
             print(f"图表已保存: {save_path}")
         
-        plt.show()
         return fig
     
-    def plot_comparison(self, results: Dict[str, BacktestResult], save_path: str = None):
+    def plot_comparison(self, results: Dict[str, BacktestResult], save_path: Optional[str] = None):
         """对比多个基金"""
         fig, axes = plt.subplots(2, 2, figsize=(14, 10))
         
         names = list(results.keys())
-        colors = plt.cm.Set2(np.linspace(0, 1, len(names)))
+        colors = plt.cm.get_cmap('tab10')(np.linspace(0, 1, len(names)))
         
         ax1 = axes[0, 0]
         for i, (name, result) in enumerate(results.items()):
@@ -255,11 +252,10 @@ class BacktestVisualizer:
             plt.savefig(save_path, dpi=150, bbox_inches='tight')
             print(f"图表已保存: {save_path}")
         
-        plt.show()
         return fig
 
 
-def visualize_backtest(result: BacktestResult, title: str = None, save_path: str = None):
+def visualize_backtest(result: BacktestResult, title: Optional[str] = None, save_path: Optional[str] = None):
     """便捷函数：可视化单个基金回测结果"""
     vis = BacktestVisualizer()
     return vis.plot_single_fund(result, title, save_path)

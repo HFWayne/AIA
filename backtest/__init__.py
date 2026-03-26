@@ -1,7 +1,5 @@
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
-import pandas as pd
-import matplotlib.pyplot as plt
 
 from data_source.fund_data_source import FundDataSource
 from backtest.dca_backtest import DCABacktest, DCAParams, BacktestResult
@@ -47,7 +45,7 @@ class BacktestConfig:
 class FundBacktester:
     """股票定投回测主类"""
     
-    def __init__(self, data_source: str = None):
+    def __init__(self, data_source: Optional[str] = None):
         from data_source.config import DATA_SOURCE
         self.data_source = data_source or DATA_SOURCE
         self.ds = FundDataSource(preferred_source=self.data_source)
@@ -87,8 +85,8 @@ class FundBacktester:
         )
         return self.backtest.run(params)
     
-    def portfolio(self, funds: List[Dict], start_date: str, end_date: str, 
-                  total_amount: float, frequency: str = 'monthly') -> Dict:
+    def portfolio(self, funds: List[Dict[str, Any]], start_date: str, end_date: str, 
+                  total_amount: float, frequency: str = 'monthly') -> Dict[str, Any]:
         """组合回测"""
         portfolio = []
         for f in funds:
@@ -106,7 +104,7 @@ class FundBacktester:
             frequency=frequency
         )
     
-    def compare(self, funds: List[Dict], start_date: str, end_date: str, 
+    def compare(self, funds: List[Dict[str, Any]], start_date: str, end_date: str, 
                 amount: float, frequency: str = 'monthly',
                 enable_stop_loss: bool = False, stop_loss_rate: float = 0.15,
                 enable_take_profit: bool = False, take_profit_rate: float = 0.20,
@@ -134,11 +132,11 @@ class FundBacktester:
                 results[f['name']] = result
         return results
     
-    def visualize_single(self, result: BacktestResult, title: str = None, save_path: str = None):
+    def visualize_single(self, result: BacktestResult, title: Optional[str] = None, save_path: Optional[str] = None):
         """可视化单个股票结果"""
         return self.visualizer.plot_single_fund(result, title, save_path)
     
-    def visualize_portfolio(self, results: Dict, save_path: str = None):
+    def visualize_portfolio(self, results: Dict[str, BacktestResult], save_path: Optional[str] = None):
         """可视化组合结果"""
         return self.visualizer.plot_portfolio(results, save_path)
     
@@ -147,12 +145,12 @@ class FundBacktester:
         return self.visualizer.plot_comparison(results, save_path)
 
 
-def quick_backtest(fund_code: str, fund_name: str = None, 
+def quick_backtest(fund_code: str, fund_name: Optional[str] = None, 
                    start_date: str = '2022-01-01', 
                    end_date: str = '2024-12-31',
                    amount: float = 1000,
-                   data_source: str = None,
-                   **strategy_kwargs) -> Optional[BacktestResult]:
+                   data_source: Optional[str] = None,
+                   **strategy_kwargs: Any) -> Optional[BacktestResult]:
     """快速回测函数"""
     from data_source.config import DATA_SOURCE
     name_map = {

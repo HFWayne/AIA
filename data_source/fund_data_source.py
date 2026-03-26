@@ -2,8 +2,7 @@ import tushare as ts
 import akshare as ak
 import baostock as bs
 import pandas as pd
-from datetime import datetime, timedelta
-from typing import Optional, Dict, List
+from typing import Optional, List
 import logging
 import time
 
@@ -16,7 +15,7 @@ logger = logging.getLogger(__name__)
 class FundDataSource:
     """统一的数据源接口，支持多数据源切换"""
     
-    def __init__(self, preferred_source: str = None):
+    def __init__(self, preferred_source: Optional[str] = None):
         self.current_source = preferred_source or DATA_SOURCE
         self.request_delay = REQUEST_DELAY
         self.max_retries = MAX_RETRIES
