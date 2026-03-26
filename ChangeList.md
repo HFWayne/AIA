@@ -27,6 +27,23 @@
 
 ---
 
+## v1.2.1 - 2026-03-26
+
+### Bug修复
+
+- 修复类型注解问题：List -> List[datetime]，添加 Optional 类型注解
+- 修复 Streamlit `use_container_width` 弃用警告
+- 移除 `plt.show()` 调用，避免 FigureCanvasAgg 警告
+- **数据源改为后复权**：tushare 添加 `adj='hfq'`，baostock `adjustflag="2"`
+  - 保证回测收益率计算准确（包含分红再投资收益）
+
+### 优化改进
+
+- 清理未使用的 imports
+- 代码风格统一
+
+---
+
 ## v1.2.0 - 2026-03-25
 
 ### 新增功能
