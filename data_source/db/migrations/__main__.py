@@ -3,10 +3,14 @@
 数据同步命令行工具
 
 用法:
-    python -m data_source.db.migrations.init_db         # 初始化数据库
-    python -m data_source.db.migrations.sync_data       # 同步股票列表
-    python -m data_source.db.migrations.sync_data --code 510300  # 同步单只股票
-    python -m data_source.db.migrations.sync_data --full  # 全量同步（需要较长时间）
+    python -m data_source.db.migrations --init                  # 初始化数据库
+    python -m data_source.db.migrations --sync-stocks         # 同步股票列表
+    python -m data_source.db.migrations --code 510300         # 同步单只股票
+    python -m data_source.db.migrations --full                 # 全量同步（高效方式）
+    python -m data_source.db.migrations --incremental         # 每日增量同步
+    python -m data_source.db.migrations --date 20240325        # 按日期同步所有股票
+    python -m data_source.db.migrations --range 20200101 20241231  # 按日期范围同步
+    python -m data_source.db.migrations --stats                 # 查看数据统计
 """
 
 import argparse
@@ -81,49 +85,26 @@ def sync_single_stock(code: str):
 
 
 def full_sync():
-    """全量同步所有股票"""
+    """全量同步：按日期批量获取所有股票（高效方式）"""
     logger.info("=" * 50)
-    logger.info("⚠️ 开始全量同步，这可能需要较长时间...")
+    logger.info("⚠️ 开始全量同步（按日期批量获取，高效模式）...")
+    logger.info("   这将获取所有股票从2000年至今的历史数据")
+    logger.info("   预计需要数小时，请耐心等待")
     
     try:
         from data_source.sync import TushareSync
-        from data_source.db.connection import get_db_session
-        from data_source.db.models import Stock
         
         sync = TushareSync()
         
-        with get_db_session() as session:
-            stocks = session.query(Stock).all()
+        start_date = "20000101"
+        end_date = datetime.now().strftime('%Y%m%d')
         
-        total = len(stocks)
-        success = 0
-        failed = []
-        
-        logger.info(f"共 {total} 只股票/ETF 需要同步")
-        
-        for i, stock in enumerate(stocks, 1):
-            try:
-                logger.info(f"[{i}/{total}] 同步 {stock.code} {stock.name}...")
-                records = sync.sync_daily_kline(stock.code)
-                if records > 0:
-                    success += 1
-                else:
-                    failed.append(stock.code)
-            except Exception as e:
-                logger.warning(f"同步失败: {stock.code} - {e}")
-                failed.append(stock.code)
-            
-            if i % 10 == 0:
-                logger.info(f"进度: {i}/{total} ({i*100//total}%)")
-            
-            time.sleep(0.5)
+        result = sync.sync_daily_date_range(start_date, end_date)
         
         logger.info("=" * 50)
         logger.info(f"✅ 全量同步完成!")
-        logger.info(f"   成功: {success} 只")
-        if failed:
-            logger.info(f"   失败: {len(failed)} 只")
-            logger.info(f"   失败代码: {', '.join(failed[:20])}{'...' if len(failed) > 20 else ''}")
+        logger.info(f"   交易日数: {result['dates']} 天")
+        logger.info(f"   记录数: {result['records']:,} 条")
         
         return True
     except Exception as e:
@@ -138,42 +119,78 @@ def incremental_sync():
     
     try:
         from data_source.sync import TushareSync
-        from data_source.db.connection import get_db_session
-        from data_source.db.models import Stock, DailyKline
-        from datetime import date
         
         sync = TushareSync()
         
-        yesterday = (date.today() - timedelta(days=1)).strftime('%Y%m%d')
+        yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y%m%d')
+        records = sync.sync_daily_by_date(yesterday)
         
-        with get_db_session() as session:
-            stocks = session.query(Stock).all()
-        
-        total = len(stocks)
-        success = 0
-        failed = []
-        
-        for i, stock in enumerate(stocks, 1):
-            try:
-                records = sync.sync_daily_kline(stock.code, start_date=yesterday)
-                if records > 0:
-                    success += 1
-                    logger.info(f"[{i}/{total}] {stock.code} 更新 {records} 条")
-            except Exception as e:
-                logger.warning(f"增量同步失败: {stock.code} - {e}")
-                failed.append(stock.code)
-            
-            if i % 50 == 0:
-                logger.info(f"进度: {i}/{total}")
-            
-            time.sleep(0.3)
-        
-        logger.info("=" * 50)
-        logger.info(f"✅ 增量同步完成! 更新 {success}/{total} 只股票")
-        
+        logger.info(f"✅ 增量同步完成! 更新 {records} 条数据")
         return True
     except Exception as e:
         logger.error(f"❌ 增量同步失败: {e}")
+        return False
+
+
+def sync_by_date(trade_date: str):
+    """按指定日期同步所有股票"""
+    logger.info("=" * 50)
+    logger.info(f"同步日期 {trade_date} 的所有股票...")
+    
+    try:
+        from data_source.sync import TushareSync
+        
+        sync = TushareSync()
+        records = sync.sync_daily_by_date(trade_date)
+        
+        logger.info(f"✅ 完成! 共 {records} 条记录")
+        return True
+    except Exception as e:
+        logger.error(f"❌ 同步失败: {e}")
+        return False
+
+
+def sync_by_date_range(start_date: str, end_date: str):
+    """按日期范围同步所有股票"""
+    logger.info("=" * 50)
+    logger.info(f"同步日期范围 {start_date} ~ {end_date} 的所有股票...")
+    
+    try:
+        from data_source.sync import TushareSync
+        
+        sync = TushareSync()
+        result = sync.sync_daily_date_range(start_date, end_date)
+        
+        logger.info(f"✅ 完成! {result['dates']} 天, {result['records']:,} 条记录")
+        return True
+    except Exception as e:
+        logger.error(f"❌ 同步失败: {e}")
+        return False
+
+
+def show_stats():
+    """显示数据统计"""
+    logger.info("=" * 50)
+    logger.info("数据统计")
+    
+    try:
+        from data_source.sync import TushareSync
+        
+        sync = TushareSync()
+        
+        stock_count = sync.get_stock_count()
+        kline_count = sync.get_kline_count()
+        
+        logger.info(f"   股票数量: {stock_count:,} 只")
+        logger.info(f"   日线数据: {kline_count:,} 条")
+        
+        if kline_count > 0 and stock_count > 0:
+            avg_days = kline_count // stock_count
+            logger.info(f"   平均每只: {avg_days} 交易日")
+        
+        return True
+    except Exception as e:
+        logger.error(f"获取统计失败: {e}")
         return False
 
 
@@ -182,8 +199,11 @@ def main():
     parser.add_argument('--init', action='store_true', help='初始化数据库')
     parser.add_argument('--sync-stocks', action='store_true', help='同步股票列表')
     parser.add_argument('--code', type=str, help='同步单只股票代码')
-    parser.add_argument('--full', action='store_true', help='全量同步所有股票')
+    parser.add_argument('--full', action='store_true', help='全量同步所有股票（高效模式）')
     parser.add_argument('--incremental', action='store_true', help='增量同步（每日调用）')
+    parser.add_argument('--date', type=str, help='按日期同步所有股票 (YYYYMMDD)')
+    parser.add_argument('--range', nargs=2, metavar=('START', 'END'), help='按日期范围同步 (YYYYMMDD YYYYMMDD)')
+    parser.add_argument('--stats', action='store_true', help='显示数据统计')
     
     args = parser.parse_args()
     
@@ -197,12 +217,23 @@ def main():
         full_sync()
     elif args.incremental:
         incremental_sync()
+    elif args.date:
+        sync_by_date(args.date)
+    elif args.range:
+        sync_by_date_range(args.range[0], args.range[1])
+    elif args.stats:
+        show_stats()
     else:
         parser.print_help()
         print("\n示例:")
-        print("  python -m data_source.db.migrations.init_db           # 初始化数据库")
-        print("  python -m data_source.db.migrations.init_db --sync-stocks  # 初始化并同步股票")
-        print("  python -m data_source.db.migrations.init_db --code 510300   # 同步单只股票")
+        print("  python -m data_source.db.migrations --init                        # 初始化数据库")
+        print("  python -m data_source.db.migrations --sync-stocks                  # 同步股票列表")
+        print("  python -m data_source.db.migrations --code 510300                 # 同步单只股票")
+        print("  python -m data_source.db.migrations --full                       # 全量同步（高效）")
+        print("  python -m data_source.db.migrations --incremental                 # 每日增量同步")
+        print("  python -m data_source.db.migrations --date 20240325               # 按日期同步")
+        print("  python -m data_source.db.migrations --range 20200101 20241231     # 日期范围")
+        print("  python -m data_source.db.migrations --stats                       # 数据统计")
 
 
 if __name__ == "__main__":
