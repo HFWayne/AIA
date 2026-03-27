@@ -22,25 +22,37 @@
 - [x] **策略分组** - 支持按分组筛选（保守型/激进型/增强型/我的策略）
 - [x] **预设策略** - 内置 6 个策略模板
 
-**Phase 3: 任务管理** 🔄 进行中
-- [ ] **任务数据模型** - 定义 AutoTask、StockItem、StrategyConfig 数据结构
-- [ ] **多策略选择** - 支持任务中多选策略
-- [ ] **异步执行引擎** - 后台执行，不阻塞 UI
-- [ ] **进度展示** - 进度条、当前股票、日志
-- [ ] **任务状态持久化** - 保存到 `reports/auto/TASKS.json`
+**Phase 3: 任务管理** ✅ 已完成
+- [x] **任务数据模型** - 定义 AutoTask、StockItem、StrategyConfig 数据结构
+- [x] **多策略选择** - 支持任务中多选策略
+- [x] **异步执行引擎** - 后台执行，不阻塞 UI
+- [x] **进度展示** - 进度条、当前股票、日志
+- [x] **任务状态持久化** - 保存到 `reports/auto/TASKS.json`
 
-**Phase 4: 报告归档**
-- [ ] **报告索引** - 生成 `INDEX.json` 快速检索
-- [ ] **报告目录结构** - 按股票/策略分类存储
-- [ ] **报告库 UI** - 列表展示，支持筛选和搜索
-- [ ] **报告详情页** - 查看单个报告详情
+### 数据库开发 ✅ 新增
 
-**Phase 5: 对比分析**
-- [ ] **对比维度** - 支持股票对比、策略对比、指标排序
-- [ ] **多选报告** - 支持选择多个报告进行对比
-- [ ] **收益曲线对比** - 叠加显示多条曲线
-- [ ] **指标对比表** - 收益率/最大回撤/夏普比率等
-- [ ] **图表导出** - 保存对比图表
+**Phase 1: MySQL 存储层**
+- [x] MySQL 数据库配置
+- [x] SQLAlchemy 数据模型（stocks, daily_kline, income, fina_indicator, sync_log）
+- [x] 数据库连接池封装
+- [x] 初始化 SQL 脚本
+
+**Phase 2: Redis 缓存层**
+- [x] Redis 配置
+- [x] 缓存客户端封装（get/set/批量/模式清除）
+- [x] 缓存 Key 命名空间
+
+**Phase 3: 数据同步服务**
+- [x] tushare 数据拉取服务
+- [x] 股票列表同步
+- [x] 日线行情同步（支持后复权）
+- [x] 财务数据同步（利润表、财务指标）
+- [x] 命令行同步工具
+
+**Phase 4: 集成与优化**
+- [x] FundDataSource 集成缓存（Redis -> MySQL -> API 优先级）
+- [x] 缓存命中率统计
+- [ ] 数据更新监控页面
 
 ### 中优先级
 
@@ -52,6 +64,10 @@
 
 ### 低优先级（后续扩展）
 
+- [ ] **沪深港通持股数据同步** - 跟踪外资动向
+- [ ] **融资融券数据同步** - 杠杆分析数据
+- [ ] **股东户数数据同步** - 人心变化数据
+- [ ] **指数成分数据同步** - 指数跟踪数据
 - [ ] **定时任务** - 支持每日/每周定时执行（需后台服务）
 - [ ] **邮件/推送通知** - 回测完成通知
 - [ ] **策略参数优化** - 网格搜索最优参数
@@ -60,6 +76,58 @@
 - [ ] **自选股同步** - 支持导入/导出 CSV
 - [ ] **股票详情页** - 显示基本信息、历史表现
 - [ ] **探索 backtrader 集成** - 研究 backtrader 库高级功能
+
+---
+
+## v1.4.0 - 2026-03-27
+
+### 新增功能
+
+**数据库存储层 (MySQL)**
+- SQLAlchemy ORM 模型：stocks、daily_kline、income、fina_indicator、sync_log
+- 数据库连接池（PyMySQL + QueuePool）
+- 初始化 SQL 脚本 (`data_source/db/migrations/init.sql`)
+
+**缓存层 (Redis)**
+- Redis 客户端封装，支持 get/set/批量/模式清除
+- 缓存 Key 命名空间规范
+- 缓存过期时间配置
+
+**数据同步服务**
+- TushareSync：股票列表、日线行情、财务数据同步
+- 命令行工具：`python -m data_source.db.migrations`
+- 支持全量同步和增量同步
+
+### 优化改进
+
+- FundDataSource 改造：Redis缓存 -> MySQL数据库 -> tushare API 优先级获取
+- 缓存命中率统计功能
+- 数据自动持久化到本地数据库
+
+### 使用方法
+
+```bash
+# 1. 确保 MySQL 和 Redis 已启动
+# 2. 配置环境变量（或修改 config.py）
+export MYSQL_HOST=localhost
+export MYSQL_PASSWORD=your_password
+export REDIS_HOST=localhost
+
+# 3. 初始化数据库
+python -m data_source.db.migrations --init
+
+# 4. 同步股票列表
+python -m data_source.db.migrations --sync-stocks
+
+# 5. 同步单只股票历史数据
+python -m data_source.db.migrations --code 510300
+
+# 6. 全量同步（首次运行，需要较长时间）
+python -m data_source.db.migrations --full
+
+# 7. 每日增量同步
+python -m data_source.db.migrations --incremental
+```
 
 ---
 
