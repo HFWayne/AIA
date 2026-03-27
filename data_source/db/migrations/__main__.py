@@ -132,6 +132,62 @@ def incremental_sync():
         return False
 
 
+def sync_missing(days: int = 30):
+    """自动检测并补齐缺失的数据"""
+    logger.info("=" * 50)
+    logger.info(f"开始检测并补齐最近 {days} 天的缺失数据...")
+    
+    try:
+        from data_source.sync import TushareSync
+        
+        sync = TushareSync()
+        
+        result = sync.sync_missing_data(days_back=days)
+        
+        if result["dates"] == 0:
+            logger.info("✅ 没有缺失数据需要补齐")
+        else:
+            logger.info("=" * 50)
+            logger.info(f"✅ 补齐完成!")
+            logger.info(f"   补齐天数: {result['dates']} 天")
+            logger.info(f"   新增记录: {result['records']:,} 条")
+        
+        return True
+    except Exception as e:
+        logger.error(f"❌ 补齐失败: {e}")
+        return False
+
+
+def check_missing(days: int = 30):
+    """检查缺失的数据"""
+    logger.info("=" * 50)
+    logger.info(f"检查最近 {days} 天的缺失数据...")
+    
+    try:
+        from data_source.sync import TushareSync
+        
+        sync = TushareSync()
+        
+        end_date = datetime.now().strftime('%Y%m%d')
+        start_date = (datetime.now() - timedelta(days=days)).strftime('%Y%m%d')
+        
+        missing_dates = sync.get_missing_trade_dates(start_date, end_date)
+        
+        if not missing_dates:
+            logger.info("✅ 没有缺失数据")
+        else:
+            logger.info(f"❌ 缺失 {len(missing_dates)} 天的数据:")
+            for d in missing_dates[:20]:
+                logger.info(f"   - {d}")
+            if len(missing_dates) > 20:
+                logger.info(f"   ... 还有 {len(missing_dates) - 20} 天")
+        
+        return True
+    except Exception as e:
+        logger.error(f"❌ 检查失败: {e}")
+        return False
+
+
 def sync_by_date(trade_date: str):
     """按指定日期同步所有股票"""
     logger.info("=" * 50)
@@ -204,6 +260,10 @@ def main():
     parser.add_argument('--date', type=str, help='按日期同步所有股票 (YYYYMMDD)')
     parser.add_argument('--range', nargs=2, metavar=('START', 'END'), help='按日期范围同步 (YYYYMMDD YYYYMMDD)')
     parser.add_argument('--stats', action='store_true', help='显示数据统计')
+    parser.add_argument('--missing', type=int, nargs='?', const=30, metavar='DAYS', 
+                       help='检测并补齐缺失数据（默认最近30天）')
+    parser.add_argument('--check-missing', type=int, nargs='?', const=30, metavar='DAYS',
+                       help='检查缺失的数据（默认最近30天）')
     
     args = parser.parse_args()
     
@@ -223,6 +283,10 @@ def main():
         sync_by_date_range(args.range[0], args.range[1])
     elif args.stats:
         show_stats()
+    elif args.missing is not None:
+        sync_missing(args.missing)
+    elif args.check_missing is not None:
+        check_missing(args.check_missing)
     else:
         parser.print_help()
         print("\n示例:")
@@ -231,9 +295,16 @@ def main():
         print("  python -m data_source.db.migrations --code 510300                 # 同步单只股票")
         print("  python -m data_source.db.migrations --full                       # 全量同步（高效）")
         print("  python -m data_source.db.migrations --incremental                 # 每日增量同步")
+        print("  python -m data_source.db.migrations --missing                    # 检测并补齐缺失数据")
+        print("  python -m data_source.db.migrations --missing 60                  # 检测并补齐最近60天")
+        print("  python -m data_source.db.migrations --check-missing               # 检查缺失数据")
         print("  python -m data_source.db.migrations --date 20240325               # 按日期同步")
         print("  python -m data_source.db.migrations --range 20200101 20241231     # 日期范围")
         print("  python -m data_source.db.migrations --stats                       # 数据统计")
+
+
+if __name__ == "__main__":
+    main()
 
 
 if __name__ == "__main__":

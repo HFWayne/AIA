@@ -342,6 +342,74 @@ class TushareSync:
         except:
             return 0
 
+    def get_missing_trade_dates(self, start_date: str = None, end_date: str = None) -> List[str]:
+        """检测缺失的交易日，返回需要补齐的日期列表"""
+        try:
+            with get_db_session() as session:
+                existing_dates = session.query(DailyKline.trade_date).distinct().all()
+                existing_set = set(str(d[0]) for d in existing_dates)
+            
+            end = end_date or datetime.now().strftime('%Y%m%d')
+            start = start_date or "20000101"
+            
+            all_trade_dates = set(self.get_trade_cal(start, end))
+            missing_dates = sorted(all_trade_dates - existing_set)
+            
+            if missing_dates:
+                logger.info(f"检测到 {len(missing_dates)} 天缺失数据需要补齐")
+                if len(missing_dates) <= 10:
+                    logger.info(f"缺失日期: {missing_dates}")
+                else:
+                    logger.info(f"缺失日期: {missing_dates[:5]} ... {missing_dates[-5:]}")
+            
+            return missing_dates
+        except Exception as e:
+            logger.warning(f"检测缺失日期失败: {e}")
+            return []
+
+    def sync_missing_data(self, days_back: int = 30) -> Dict[str, int]:
+        """自动检测并补齐缺失的数据（默认检测最近30天）"""
+        end_date = datetime.now().strftime('%Y%m%d')
+        start_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y%m%d')
+        
+        missing_dates = self.get_missing_trade_dates(start_date, end_date)
+        
+        if not missing_dates:
+            logger.info("没有缺失数据需要补齐")
+            return {"dates": 0, "records": 0}
+        
+        total_records = 0
+        total_dates = len(missing_dates)
+        
+        logger.info(f"开始补齐 {total_dates} 天的缺失数据...")
+        
+        for i, date in enumerate(missing_dates, 1):
+            try:
+                records = self.sync_daily_by_date(date)
+                total_records += records
+                if i % 10 == 0:
+                    logger.info(f"补齐进度: {i}/{total_dates} ({i*100//total_dates}%)")
+            except Exception as e:
+                logger.warning(f"补齐 {date} 失败: {e}")
+        
+        logger.info(f"补齐完成: {total_dates} 天, {total_records} 条记录")
+        return {"dates": total_dates, "records": total_records}
+
+    def get_data_range(self) -> Dict[str, str]:
+        """获取数据库中数据的日期范围"""
+        try:
+            with get_db_session() as session:
+                oldest = session.query(DailyKline.trade_date).order_by(DailyKline.trade_date.asc()).first()
+                newest = session.query(DailyKline.trade_date).order_by(DailyKline.trade_date.desc()).first()
+                
+            return {
+                "start": str(oldest[0]) if oldest else None,
+                "end": str(newest[0]) if newest else None
+            }
+        except Exception as e:
+            logger.warning(f"获取数据范围失败: {e}")
+            return {"start": None, "end": None}
+
 
 def sync_all_stocks() -> Dict[str, int]:
     """便捷函数：同步所有股票"""
