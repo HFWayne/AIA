@@ -225,6 +225,130 @@ class FundDataSource:
         self.current_source = source
         logger.info(f"Data source changed to: {source}")
 
+    def get_stock_info(self, stock_code: str) -> Optional[dict]:
+        """
+        获取股票/ETF基本信息
+        :param stock_code: 股票代码，如 600036, 510300
+        :return: dict with name, type, market, etc.
+        """
+        stock_info = None
+        
+        if self.pro:
+            stock_info = self._get_stock_info_tushare(stock_code)
+        
+        if stock_info is None:
+            stock_info = self._get_stock_info_akshare(stock_code)
+        
+        return stock_info
+    
+    def _get_stock_info_tushare(self, stock_code: str) -> Optional[dict]:
+        """从tushare获取股票信息"""
+        if self.pro is None:
+            return None
+        
+        self._apply_delay()
+        
+        exchange = "SH" if stock_code.startswith(("5", "6", "9")) else "SZ"
+        ts_code = f"{stock_code}.{exchange}"
+        
+        try:
+            df = self.pro.stock_basic(ts_code=ts_code, list_status='L')
+            if df is not None and not df.empty:
+                row = df.iloc[0]
+                return {
+                    'code': stock_code,
+                    'name': row.get('name', stock_code),
+                    'market': 'SH' if exchange == 'SH' else 'SZ',
+                    'industry': row.get('industry', ''),
+                    'list_date': row.get('list_date', ''),
+                }
+        except Exception as e:
+            logger.warning(f"Tushare stock_basic error: {e}")
+        
+        try:
+            df = self.pro.fund_basic(market='E', ts_code=ts_code)
+            if df is not None and not df.empty:
+                row = df.iloc[0]
+                return {
+                    'code': stock_code,
+                    'name': row.get('name', stock_code),
+                    'type': 'ETF',
+                    'market': 'SH' if exchange == 'SH' else 'SZ',
+                    'management': row.get('management', ''),
+                }
+        except Exception as e:
+            logger.warning(f"Tushare fund_basic error: {e}")
+        
+        try:
+            df = self.pro.daily(ts_code=ts_code, start_date='20240101', end_date='20240110')
+            if df is not None and not df.empty:
+                name_map = {
+                    '600036': '招商银行', '601318': '中国平安', '000858': '五粮液',
+                    '600519': '贵州茅台', '601888': '中国中免', '300750': '宁德时代',
+                    '000001': '上证指数', '399001': '深证成指', '399006': '创业板指',
+                    '000300': '沪深300', '000905': '中证500', '000016': '上证50',
+                    '510300': '沪深300ETF', '510500': '中证500ETF', '159915': '创业板ETF',
+                    '510050': '上证50ETF', '510880': '红利ETF', '512880': '证券ETF',
+                    '512760': '芯片ETF', '512660': '军工ETF', '512010': '医药ETF',
+                    '515050': '5GETF', '512890': '红利低波ETF', '515100': '红利增强ETF',
+                }
+                return {
+                    'code': stock_code,
+                    'name': name_map.get(stock_code, stock_code),
+                    'market': 'SH' if exchange == 'SH' else 'SZ',
+                    'verified': True,
+                }
+        except Exception as e:
+            logger.warning(f"Tushare daily verify error: {e}")
+        
+        return None
+    
+    def _get_stock_info_akshare(self, stock_code: str) -> Optional[dict]:
+        """从akshare获取股票信息"""
+        try:
+            self._apply_delay()
+            
+            info = ak.stock_individual_info_em(symbol=stock_code)
+            if info is not None and not info.empty:
+                info_dict = dict(zip(info['item'], info['value']))
+                return {
+                    'code': stock_code,
+                    'name': info_dict.get('股票简称', stock_code),
+                    'market': 'SH' if stock_code.startswith(('5', '6', '9')) else 'SZ',
+                    'industry': info_dict.get('行业', ''),
+                    'verified': True,
+                }
+        except Exception as e:
+            logger.warning(f"AkShare stock_info error: {e}")
+        
+        name_map = {
+            '600036': '招商银行', '601318': '中国平安', '000858': '五粮液',
+            '600519': '贵州茅台', '601888': '中国中免', '300750': '宁德时代',
+            '510300': '沪深300ETF', '510500': '中证500ETF', '159915': '创业板ETF',
+            '510050': '上证50ETF', '510880': '红利ETF', '512880': '证券ETF',
+            '512760': '芯片ETF', '512660': '军工ETF', '512010': '医药ETF',
+            '515050': '5GETF', '512890': '红利低波ETF', '515100': '红利增强ETF',
+        }
+        
+        if stock_code in name_map:
+            return {
+                'code': stock_code,
+                'name': name_map[stock_code],
+                'verified': True,
+            }
+        
+        return None
+    
+    def verify_stock(self, stock_code: str) -> tuple[bool, Optional[str]]:
+        """
+        验证股票代码是否有效
+        :return: (is_valid, stock_name)
+        """
+        info = self.get_stock_info(stock_code)
+        if info:
+            return True, info.get('name', stock_code)
+        return False, None
+
 
 # 常用基金代码示例
 FUND_CODES = {

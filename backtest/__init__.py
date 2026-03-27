@@ -4,6 +4,9 @@ from dataclasses import dataclass
 from data_source.fund_data_source import FundDataSource
 from backtest.dca_backtest import DCABacktest, DCAParams, BacktestResult
 from backtest.visualization import BacktestVisualizer
+from backtest.watchlist_manager import WatchlistManager, Watchlist, StockInfo
+from backtest.strategy_manager import StrategyManager, StrategyTemplate, StrategyParams
+from backtest.report_manager import ReportManager, Report
 
 
 @dataclass

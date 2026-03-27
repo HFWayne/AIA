@@ -13,6 +13,9 @@ from backtest.dca_backtest import BacktestResult
 from backtest.visualization import BacktestVisualizer
 from data_source.config import DATA_SOURCE, AVAILABLE_SOURCES
 from backtest.report_manager import ReportManager
+from backtest.page_watchlist import render_watchlist_manager
+from backtest.page_strategy import render_strategy_manager
+from backtest.page_task import render_task_manager
 
 
 st.set_page_config(
@@ -689,6 +692,11 @@ def page_reports():
 def main():
     st.markdown('<div class="main-header">📈 股票定投回测工具</div>', unsafe_allow_html=True)
     
+    if 'task_running' not in st.session_state:
+        st.session_state['task_running'] = False
+    if 'current_task_id' not in st.session_state:
+        st.session_state['current_task_id'] = None
+
     params = sidebar_params()
     (start_date, end_date, amount, frequency, day_of_month, day_of_week, data_source,
      enable_stop_loss, stop_loss_rate, stop_loss_sell_ratio,
@@ -698,7 +706,14 @@ def main():
      dip_buy_tier3_threshold, dip_buy_tier3_amount,
      enable_yield_boost, yield_boost_trigger, yield_boost_recover, yield_boost_amount) = params
     
-    tab1, tab2, tab3 = st.tabs(["📊 单股票回测", "📈 多股票对比", "📁 报告管理"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📊 单股票回测",
+        "📈 多股票对比",
+        "⭐ 自选股",
+        "🎯 策略管理",
+        "📋 自动回测",
+        "📁 报告管理"
+    ])
     
     with tab1:
         page_single_backtest(start_date, end_date, amount, frequency, day_of_month, day_of_week, data_source,
@@ -715,6 +730,15 @@ def main():
                     take_profit_sell_ratio, data_source)
     
     with tab3:
+        render_watchlist_manager()
+    
+    with tab4:
+        render_strategy_manager()
+    
+    with tab5:
+        render_task_manager()
+    
+    with tab6:
         page_reports()
 
 
