@@ -46,35 +46,44 @@ def init_database():
         return False
 
 
-def sync_stocks():
+def sync_stocks(use_free: bool = False):
     """同步股票列表"""
     logger.info("=" * 50)
-    logger.info("开始同步股票列表...")
+    logger.info(f"开始同步股票列表 (免费数据源: {use_free})...")
     
     try:
-        from data_source.sync import TushareSync
-        
-        sync = TushareSync()
-        result = sync.sync_all_stocks()
-        
-        logger.info(f"✅ 同步完成!")
-        logger.info(f"   股票: {result['stocks']} 只")
-        logger.info(f"   ETF: {result['etfs']} 只")
+        if use_free:
+            from data_source.sync import FreeDataSync
+            sync = FreeDataSync()
+            result = sync.sync_all_stocks()
+            logger.info(f"✅ 同步完成!")
+            logger.info(f"   股票: {result['stocks']} 只")
+        else:
+            from data_source.sync import TushareSync
+            sync = TushareSync()
+            result = sync.sync_all_stocks()
+            logger.info(f"✅ 同步完成!")
+            logger.info(f"   股票: {result['stocks']} 只")
+            logger.info(f"   ETF: {result['etfs']} 只")
         return True
     except Exception as e:
         logger.error(f"❌ 同步失败: {e}")
         return False
 
 
-def sync_single_stock(code: str):
+def sync_single_stock(code: str, use_free: bool = False):
     """同步单只股票"""
     logger.info("=" * 50)
-    logger.info(f"开始同步股票 {code} ...")
+    logger.info(f"开始同步股票 {code} (免费数据源: {use_free})...")
     
     try:
-        from data_source.sync import TushareSync
+        if use_free:
+            from data_source.sync import FreeDataSync
+            sync = FreeDataSync()
+        else:
+            from data_source.sync import TushareSync
+            sync = TushareSync()
         
-        sync = TushareSync()
         records = sync.sync_daily_kline(code)
         
         logger.info(f"✅ 同步完成! 共 {records} 条数据")
@@ -264,15 +273,16 @@ def main():
                        help='检测并补齐缺失数据（默认最近30天）')
     parser.add_argument('--check-missing', type=int, nargs='?', const=30, metavar='DAYS',
                        help='检查缺失的数据（默认最近30天）')
+    parser.add_argument('--free', action='store_true', help='使用免费数据源 (akshare/baostock)')
     
     args = parser.parse_args()
     
     if args.init:
         init_database()
     elif args.sync_stocks:
-        sync_stocks()
+        sync_stocks(use_free=args.free)
     elif args.code:
-        sync_single_stock(args.code)
+        sync_single_stock(args.code, use_free=args.free)
     elif args.full:
         full_sync()
     elif args.incremental:
@@ -291,16 +301,13 @@ def main():
         parser.print_help()
         print("\n示例:")
         print("  python -m data_source.db.migrations --init                        # 初始化数据库")
-        print("  python -m data_source.db.migrations --sync-stocks                  # 同步股票列表")
-        print("  python -m data_source.db.migrations --code 510300                 # 同步单只股票")
-        print("  python -m data_source.db.migrations --full                       # 全量同步（高效）")
-        print("  python -m data_source.db.migrations --incremental                 # 每日增量同步")
-        print("  python -m data_source.db.migrations --missing                    # 检测并补齐缺失数据")
-        print("  python -m data_source.db.migrations --missing 60                  # 检测并补齐最近60天")
-        print("  python -m data_source.db.migrations --check-missing               # 检查缺失数据")
-        print("  python -m data_source.db.migrations --date 20240325               # 按日期同步")
-        print("  python -m data_source.db.migrations --range 20200101 20241231     # 日期范围")
-        print("  python -m data_source.db.migrations --stats                       # 数据统计")
+        print("  python -m data_source.db.migrations --sync-stocks --free           # 免费数据源同步股票列表")
+        print("  python -m data_source.db.migrations --code 510300 --free            # 免费数据源同步单只股票")
+        print("  python -m data_source.db.migrations --code 000001                   # 使用tushare同步单只股票")
+        print("  python -m data_source.db.migrations --full                          # 全量同步（需tushare）")
+        print("  python -m data_source.db.migrations --incremental                  # 每日增量同步")
+        print("  python -m data_source.db.migrations --missing                      # 检测并补齐缺失数据")
+        print("  python -m data_source.db.migrations --stats                         # 数据统计")
 
 
 if __name__ == "__main__":
