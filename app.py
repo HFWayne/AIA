@@ -3,6 +3,11 @@
 股票定投回测 Web 应用 (Streamlit)
 """
 
+import sys
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt

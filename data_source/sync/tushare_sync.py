@@ -77,58 +77,57 @@ class TushareSync:
         try:
             df = self._retry_get(self.pro.stock_basic, list_status='L')
             if df is not None and not df.empty:
-                stocks_data = []
-                for _, row in df.iterrows():
-                    ts_code = row['ts_code']
-                    code = ts_code.split('.')[0]
-                    market = ts_code.split('.')[1]
-                    stocks_data.append({
-                        'code': code,
-                        'name': row['name'],
-                        'market': market,
-                        'industry': row.get('industry', ''),
-                        'list_date': row.get('list_date'),
-                        'stock_type': '股票'
-                    })
-                
-                df_stocks = pd.DataFrame(stocks_data)
-                df_stocks.to_sql('stocks', get_engine(), if_exists='replace', index=False)
-                result["stocks"] = len(df_stocks)
-                logger.info(f"同步股票列表: {result['stocks']} 只")
+                stocks_added = 0
+                with get_db_session() as session:
+                    for _, row in df.iterrows():
+                        ts_code = row['ts_code']
+                        code = ts_code.split('.')[0]
+                        market = ts_code.split('.')[1]
+                        
+                        existing = session.query(Stock).filter(Stock.code == code).first()
+                        if existing:
+                            existing.name = row['name']
+                            existing.industry = row.get('industry', '')
+                            existing.stock_type = '股票'
+                        else:
+                            stock = Stock(
+                                code=code,
+                                name=row['name'],
+                                market=market,
+                                industry=row.get('industry', ''),
+                                list_date=row.get('list_date'),
+                                stock_type='股票'
+                            )
+                            session.add(stock)
+                            stocks_added += 1
+                result["stocks"] = stocks_added
+                logger.info(f"同步股票列表: 新增 {stocks_added} 只")
 
             df_etf = self._retry_get(self.pro.fund_basic, market='E')
             if df_etf is not None and not df_etf.empty:
-                etfs_data = []
-                for _, row in df_etf.iterrows():
-                    ts_code = row['ts_code']
-                    code = ts_code.split('.')[0]
-                    market = ts_code.split('.')[1]
-                    etfs_data.append({
-                        'code': code,
-                        'name': row['name'],
-                        'market': market,
-                        'list_date': row.get('found_date'),
-                        'stock_type': 'ETF'
-                    })
-                
-                df_etfs = pd.DataFrame(etfs_data)
-                for _, row in df_etfs.iterrows():
-                    with get_db_session() as session:
-                        existing = session.query(Stock).filter(Stock.code == row['code']).first()
+                etfs_added = 0
+                with get_db_session() as session:
+                    for _, row in df_etf.iterrows():
+                        ts_code = row['ts_code']
+                        code = ts_code.split('.')[0]
+                        market = ts_code.split('.')[1]
+                        
+                        existing = session.query(Stock).filter(Stock.code == code).first()
                         if existing:
                             existing.name = row['name']
                             existing.stock_type = 'ETF'
                         else:
                             stock = Stock(
-                                code=row['code'],
+                                code=code,
                                 name=row['name'],
-                                market=row['market'],
-                                list_date=row.get('list_date'),
+                                market=market,
+                                list_date=row.get('found_date'),
                                 stock_type='ETF'
                             )
                             session.add(stock)
-                result["etfs"] = len(df_etfs)
-                logger.info(f"同步ETF列表: {result['etfs']} 只")
+                            etfs_added += 1
+                result["etfs"] = etfs_added
+                logger.info(f"同步ETF列表: 新增 {etfs_added} 只")
                 
         except Exception as e:
             logger.error(f"同步股票列表失败: {e}")

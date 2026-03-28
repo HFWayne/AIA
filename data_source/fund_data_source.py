@@ -12,6 +12,7 @@ from typing import Optional, List
 import tushare as ts
 import akshare as ak
 import baostock as bs
+from sqlalchemy import text
 
 from data_source.config import (
     DATA_SOURCE, TU_SHARE_TOKEN, REQUEST_DELAY, MAX_RETRIES,
@@ -42,7 +43,7 @@ class FundDataSource:
         """检查数据库是否可用"""
         try:
             with get_db_session() as session:
-                session.execute("SELECT 1")
+                session.execute(text("SELECT 1"))
             return True
         except Exception as e:
             logger.warning(f"数据库不可用: {e}")
