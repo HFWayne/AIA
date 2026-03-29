@@ -238,8 +238,8 @@ class FundDataSource:
     def _get_fund_from_akshare(self, fund_code: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
         """从akshare获取股票历史数据"""
         funcs_to_try = [
-            ('stock_zh_a_hist', {'symbol': fund_code, 'start_date': start_date, 'end_date': end_date, 'adjust': 'hfq'}),
-            ('stock_zh_a_daily', {'symbol': fund_code, 'start_date': start_date, 'end_date': end_date, 'adjust': 'hfq'}),
+            ('stock_zh_a_hist', {'symbol': fund_code, 'start_date': start_date, 'end_date': end_date, 'adjust': 'qfq'}),
+            ('stock_zh_a_daily', {'symbol': fund_code, 'adjust': 'qfq'}),
         ]
 
         for retry in range(self.max_retries):
@@ -254,21 +254,59 @@ class FundDataSource:
                     df = func(**kwargs)
 
                     if df is not None and not df.empty:
-                        logger.info(f"Got data from {func_name}: {len(df)} rows")
+                        logger.info(f"Got data from {func_name}: {len(df)} rows, columns: {list(df.columns)}")
 
-                        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+                        date_col = None
+                        for col in ['日期', 'date', '交易日期', 'datetime']:
+                            if col in df.columns:
+                                date_col = col
+                                break
+                        
+                        if date_col is None:
+                            logger.warning(f"akshare 返回数据没有日期列，可用列: {list(df.columns)}")
+                            continue
+                        
+                        close_col = None
+                        for col in ['收盘', 'close', '收盘价', '收盘点位']:
+                            if col in df.columns:
+                                close_col = col
+                                break
+                        
+                        if close_col is None:
+                            logger.warning(f"akshare 返回数据没有收盘价列")
+                            continue
+
+                        df['date'] = pd.to_datetime(df[date_col], errors='coerce')
                         df = df.dropna(subset=['date'])
-                        df['nav'] = pd.to_numeric(df['close'], errors='coerce')
-                        df['accum_nav'] = df['nav']
-
+                        
+                        if len(df) == 0:
+                            continue
+                        
+                        if '日期' in df.columns:
+                            df['日期'] = pd.to_datetime(df['日期'], errors='coerce')
+                            df = df[df['日期'] >= pd.to_datetime(start_date[:4] + '-' + start_date[4:6] + '-' + start_date[6:])]
+                            df = df[df['日期'] <= pd.to_datetime(end_date[:4] + '-' + end_date[4:6] + '-' + end_date[6:])]
+                        
+                        df['nav'] = pd.to_numeric(df[close_col], errors='coerce')
+                        df = df.dropna(subset=['nav'])
+                        
+                        if len(df) == 0:
+                            continue
+                        
                         result = pd.DataFrame()
                         result['date'] = df['date'].dt.strftime('%Y%m%d')
                         result['nav'] = df['nav']
-                        result['accum_nav'] = df['accum_nav']
-                        result['open'] = pd.to_numeric(df['open'], errors='coerce')
-                        result['high'] = pd.to_numeric(df['high'], errors='coerce')
-                        result['low'] = pd.to_numeric(df['low'], errors='coerce')
-
+                        result['accum_nav'] = df['nav']
+                        
+                        for col, name in [('开盘', 'open'), ('最高', 'high'), ('最低', 'low')]:
+                            if col in df.columns:
+                                result[name] = pd.to_numeric(df[col], errors='coerce')
+                            elif name in df.columns:
+                                result[name] = pd.to_numeric(df[name], errors='coerce')
+                            else:
+                                result[name] = df['nav']
+                        
+                        result = result.dropna(subset=['nav'])
                         logger.info(f"akshare: {func_name} 返回 {len(result)} 条数据")
                         return result.sort_values('date')
                 except Exception as e:
@@ -286,7 +324,9 @@ class FundDataSource:
                 start_str = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:]}"
                 end_str = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:]}"
 
-            if fund_code.startswith('6'):
+            if fund_code.startswith('5'):
+                code_formats = [f"sh.{fund_code}"]
+            elif fund_code.startswith('6'):
                 code_formats = [f"sh.{fund_code}"]
             elif fund_code.startswith(('0', '3')):
                 code_formats = [f"sz.{fund_code}"]
@@ -307,6 +347,10 @@ class FundDataSource:
                             adjustflag="2"
                         )
 
+                        if rs is None:
+                            logger.warning(f"Baostock 返回 None")
+                            continue
+                        
                         logger.info(f"Baostock result: error_code={rs.error_code}")
 
                         if rs.error_code == '0':
@@ -314,16 +358,20 @@ class FundDataSource:
                             while rs.error_code == '0' and rs.next():
                                 data_list.append(rs.get_row_data())
 
-                            if data_list:
+                            if data_list and len(data_list) > 0:
                                 df = pd.DataFrame(data_list, columns=rs.fields)
-                                logger.info(f"Baostock 返回 {len(df)} 条数据")
-                                df = df.rename(columns={'close': 'nav'})
-                                df['accum_nav'] = df['nav']
-                                df['open'] = pd.to_numeric(df['open'], errors='coerce')
-                                df['high'] = pd.to_numeric(df['high'], errors='coerce')
-                                df['low'] = pd.to_numeric(df['low'], errors='coerce')
-                                bs.logout()
-                                return df[['date', 'nav', 'accum_nav', 'open', 'high', 'low']]
+                                if len(df) > 0:
+                                    logger.info(f"Baostock 返回 {len(df)} 条数据")
+                                    df = df.rename(columns={'close': 'nav'})
+                                    df['accum_nav'] = df['nav']
+                                    df['open'] = pd.to_numeric(df['open'], errors='coerce')
+                                    df['high'] = pd.to_numeric(df['high'], errors='coerce')
+                                    df['low'] = pd.to_numeric(df['low'], errors='coerce')
+                                    df['nav'] = pd.to_numeric(df['nav'], errors='coerce')
+                                    df = df[df['nav'] > 0]
+                                    if len(df) > 0:
+                                        bs.logout()
+                                        return df[['date', 'nav', 'accum_nav', 'open', 'high', 'low']]
                         else:
                             logger.warning(f"Baostock query failed: {rs.error_msg}")
                     except Exception as e:
