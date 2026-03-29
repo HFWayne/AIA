@@ -59,7 +59,7 @@ class FundDataSource:
             try:
                 ts.set_token(TU_SHARE_TOKEN)
                 self.pro = ts.pro_api()
-                logger.info("tushare pro API 初始化成功")
+                logger.debug("tushare pro API 初始化成功")
             except Exception as e:
                 logger.warning(f"tushare pro API 初始化失败: {e}")
 
