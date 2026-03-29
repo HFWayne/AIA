@@ -16,6 +16,7 @@ from backtest.report_manager import ReportManager
 from backtest.page_watchlist import render_watchlist_manager
 from backtest.page_strategy import render_strategy_manager
 from backtest.page_task import render_task_manager
+from backtest.page_diagnostic import render_diagnostic_page
 from i18n import t, render_language_selector, get_locale
 
 
@@ -1044,13 +1045,14 @@ def main():
      dip_buy_tier3_threshold, dip_buy_tier3_amount,
      enable_yield_boost, yield_boost_trigger, yield_boost_recover, yield_boost_amount) = params
     
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         t("tab_single_backtest"),
         t("tab_multi_comparison"),
         t("tab_watchlist"),
         t("tab_strategy"),
         t("tab_auto_backtest"),
-        t("tab_reports")
+        t("tab_reports"),
+        "📡 数据源"
     ])
     
     with tab1:
@@ -1078,6 +1080,9 @@ def main():
     
     with tab6:
         page_reports()
+    
+    with tab7:
+        render_diagnostic_page()
 
 
 if __name__ == "__main__":
