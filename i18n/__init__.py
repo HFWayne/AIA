@@ -67,29 +67,42 @@ def get_language_name(locale: str) -> str:
 
 
 def render_language_selector():
-    """渲染语言选择器（下拉框样式）"""
+    """渲染语言选择器（右上角下拉框）"""
     current = get_locale()
     
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col3:
-        locale_options = ["zh_CN", "en_US"]
-        locale_labels = {
-            "zh_CN": "🇨🇳 中文",
-            "en_US": "🇺🇸 English"
-        }
-        
-        selected = st.selectbox(
-            "🌐",
-            options=locale_options,
-            index=locale_options.index(current),
-            format_func=lambda x: locale_labels[x],
-            key="language_selector",
-            label_visibility="collapsed"
-        )
-        
-        if selected != current:
-            set_locale(selected)
-            st.rerun()
+    locale_options = ["zh_CN", "en_US"]
+    locale_labels = {
+        "zh_CN": "🇨🇳 中文",
+        "en_US": "🇺🇸 English"
+    }
+    
+    selected = st.selectbox(
+        "🌐",
+        options=locale_options,
+        index=locale_options.index(current),
+        format_func=lambda x: locale_labels[x],
+        key="language_selector",
+        label_visibility="collapsed"
+    )
+    
+    if selected != current:
+        set_locale(selected)
+        st.rerun()
+    
+    st.markdown("""
+    <style>
+    [data-testid="stSelectbox"] {
+        position: fixed;
+        top: 4px;
+        right: 70px;
+        z-index: 999;
+        width: 120px;
+    }
+    [data-testid="stSelectbox"] > div {
+        background: white;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 
 def gettext(key: str) -> str:
