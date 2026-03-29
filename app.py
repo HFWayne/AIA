@@ -429,7 +429,8 @@ def sidebar_params():
                 st.error(t("error_recovery_threshold"))
     
     with st.sidebar.expander(t("expander_data_source"), expanded=False):
-        data_source = st.selectbox(t("sidebar_select_source"), AVAILABLE_SOURCES, index=0)
+        default_idx = AVAILABLE_SOURCES.index(DATA_SOURCE) if DATA_SOURCE in AVAILABLE_SOURCES else 0
+        data_source = st.selectbox(t("sidebar_select_source"), AVAILABLE_SOURCES, index=default_idx)
     
     st.sidebar.markdown("---")
     with st.sidebar.container():
