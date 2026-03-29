@@ -7,6 +7,7 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import date
+import logging
 
 from backtest import FundBacktester, BacktestConfig
 from backtest.dca_backtest import BacktestResult
@@ -18,6 +19,63 @@ from backtest.page_strategy import render_strategy_manager
 from backtest.page_task import render_task_manager
 from backtest.page_diagnostic import render_diagnostic_page
 from i18n import t, render_language_selector, get_locale
+
+logger = logging.getLogger(__name__)
+
+
+def clear_all_data():
+    """清空所有数据：MySQL 和 Redis"""
+    st.warning("⚠️ 即将清空所有数据！这将删除 MySQL 数据库表中的数据和 Redis 缓存。")
+    
+    confirm = st.text_input("输入 'CLEAR' 确认清空:", key="clear_confirm")
+    
+    if confirm == "CLEAR":
+        try:
+            from data_source.cache import get_cache
+            cache = get_cache()
+            if cache.is_available():
+                cache.clear_pattern("*")
+                st.success("✅ Redis 缓存已清空")
+                logger.info("Redis cache cleared")
+            
+            from data_source.db.connection import get_db_session, get_engine
+            from sqlalchemy import text
+            
+            engine = get_engine()
+            tables_to_clear = [
+                'daily_kline_akshare',
+                'daily_kline_tushare', 
+                'reports',
+                'watchlists',
+                'watchlist_stocks',
+                'strategy_templates',
+                'stocks',
+                'sync_logs'
+            ]
+            
+            with engine.connect() as conn:
+                for table in tables_to_clear:
+                    try:
+                        conn.execute(text(f"TRUNCATE TABLE {table}"))
+                        st.success(f"✅ {table} 表已清空")
+                        logger.info(f"Table {table} truncated")
+                    except Exception as e:
+                        st.error(f"❌ 清空 {table} 失败: {e}")
+                        logger.error(f"Failed to truncate {table}: {e}")
+                conn.commit()
+            
+            st.cache_data.clear()
+            st.success("🎉 所有数据已清空！请刷新页面或重新启动应用。")
+            return True
+            
+        except Exception as e:
+            st.error(f"清空数据失败: {e}")
+            logger.error(f"Clear all data failed: {e}")
+            return False
+    else:
+        if confirm:
+            st.info("请输入 'CLEAR' 进行确认")
+        return False
 
 
 st.set_page_config(
@@ -431,6 +489,10 @@ def sidebar_params():
     with st.sidebar.expander(t("expander_data_source"), expanded=False):
         default_idx = AVAILABLE_SOURCES.index(DATA_SOURCE) if DATA_SOURCE in AVAILABLE_SOURCES else 0
         data_source = st.selectbox(t("sidebar_select_source"), AVAILABLE_SOURCES, index=default_idx)
+    
+    with st.sidebar.expander("🗑️ 系统工具", expanded=False):
+        if st.button("清空所有数据", help="清空 MySQL 和 Redis 中的所有数据（谨慎操作）"):
+            clear_all_data()
     
     st.sidebar.markdown("---")
     with st.sidebar.container():
