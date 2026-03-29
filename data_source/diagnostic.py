@@ -309,7 +309,7 @@ class DataSourceDiagnostic:
 ### 回退链路
 
 ```
-{chr(10).join(f"{i+1}. {s}" for i, s in enumerate(result.summary['fallback_chain']))]
+{chr(10).join(f"{i+1}. {s}" for i, s in enumerate(result.summary['fallback_chain']))}
 ```
 
 ## 使用说明
