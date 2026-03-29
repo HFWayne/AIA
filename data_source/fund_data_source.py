@@ -236,10 +236,14 @@ class FundDataSource:
         return None
 
     def _get_fund_from_akshare(self, fund_code: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
-        """从akshare获取股票历史数据"""
+        """从akshare获取股票/ETF历史数据"""
+        
+        start_dt = pd.to_datetime(start_date[:4] + '-' + start_date[4:6] + '-' + start_date[6:])
+        end_dt = pd.to_datetime(end_date[:4] + '-' + end_date[4:6] + '-' + end_date[6:])
+        
         funcs_to_try = [
             ('stock_zh_a_hist', {'symbol': fund_code, 'start_date': start_date, 'end_date': end_date, 'adjust': 'qfq'}),
-            ('stock_zh_a_daily', {'symbol': fund_code, 'adjust': 'qfq'}),
+            ('fund_etf_hist_em', {'symbol': fund_code}),
         ]
 
         for retry in range(self.max_retries):
@@ -249,66 +253,68 @@ class FundDataSource:
                     logger.info(f"Trying ak.{func_name}({fund_code}) retry {retry+1}")
                     func = getattr(ak, func_name, None)
                     if func is None:
+                        logger.warning(f"ak.{func_name} not found")
                         continue
 
                     df = func(**kwargs)
 
-                    if df is not None and not df.empty:
-                        logger.info(f"Got data from {func_name}: {len(df)} rows, columns: {list(df.columns)}")
+                    if df is None or df.empty:
+                        logger.warning(f"ak.{func_name} returned empty data")
+                        continue
 
-                        date_col = None
-                        for col in ['日期', 'date', '交易日期', 'datetime']:
-                            if col in df.columns:
-                                date_col = col
-                                break
-                        
-                        if date_col is None:
-                            logger.warning(f"akshare 返回数据没有日期列，可用列: {list(df.columns)}")
-                            continue
-                        
-                        close_col = None
-                        for col in ['收盘', 'close', '收盘价', '收盘点位']:
-                            if col in df.columns:
-                                close_col = col
-                                break
-                        
-                        if close_col is None:
-                            logger.warning(f"akshare 返回数据没有收盘价列")
-                            continue
+                    logger.info(f"Got data from {func_name}: {len(df)} rows")
 
-                        df['date'] = pd.to_datetime(df[date_col], errors='coerce')
-                        df = df.dropna(subset=['date'])
-                        
-                        if len(df) == 0:
-                            continue
-                        
-                        if '日期' in df.columns:
-                            df['日期'] = pd.to_datetime(df['日期'], errors='coerce')
-                            df = df[df['日期'] >= pd.to_datetime(start_date[:4] + '-' + start_date[4:6] + '-' + start_date[6:])]
-                            df = df[df['日期'] <= pd.to_datetime(end_date[:4] + '-' + end_date[4:6] + '-' + end_date[6:])]
-                        
-                        df['nav'] = pd.to_numeric(df[close_col], errors='coerce')
-                        df = df.dropna(subset=['nav'])
-                        
-                        if len(df) == 0:
-                            continue
-                        
-                        result = pd.DataFrame()
-                        result['date'] = df['date'].dt.strftime('%Y%m%d')
-                        result['nav'] = df['nav']
-                        result['accum_nav'] = df['nav']
-                        
-                        for col, name in [('开盘', 'open'), ('最高', 'high'), ('最低', 'low')]:
-                            if col in df.columns:
-                                result[name] = pd.to_numeric(df[col], errors='coerce')
-                            elif name in df.columns:
-                                result[name] = pd.to_numeric(df[name], errors='coerce')
-                            else:
-                                result[name] = df['nav']
-                        
-                        result = result.dropna(subset=['nav'])
-                        logger.info(f"akshare: {func_name} 返回 {len(result)} 条数据")
-                        return result.sort_values('date')
+                    if '日期' not in df.columns:
+                        logger.warning(f"akshare data missing '日期' column")
+                        continue
+
+                    df['日期'] = pd.to_datetime(df['日期'], errors='coerce')
+                    df = df.dropna(subset=['日期'])
+                    
+                    df = df[df['日期'] >= start_dt]
+                    df = df[df['日期'] <= end_dt]
+
+                    if len(df) == 0:
+                        logger.warning(f"akshare: no data after date filter")
+                        continue
+
+                    if '收盘' not in df.columns:
+                        logger.warning(f"akshare data missing '收盘' column")
+                        continue
+
+                    df['nav'] = pd.to_numeric(df['收盘'], errors='coerce')
+                    df = df.dropna(subset=['nav'])
+                    df = df[df['nav'] > 0]
+
+                    if len(df) == 0:
+                        continue
+
+                    result = pd.DataFrame()
+                    result['date'] = df['日期'].dt.strftime('%Y%m%d')
+                    result['nav'] = df['nav']
+                    result['accum_nav'] = df['nav']
+                    
+                    if '开盘' in df.columns:
+                        result['open'] = pd.to_numeric(df['开盘'], errors='coerce')
+                    else:
+                        result['open'] = df['nav']
+                    
+                    if '最高' in df.columns:
+                        result['high'] = pd.to_numeric(df['最高'], errors='coerce')
+                    else:
+                        result['high'] = df['nav']
+                    
+                    if '最低' in df.columns:
+                        result['low'] = pd.to_numeric(df['最低'], errors='coerce')
+                    else:
+                        result['low'] = df['nav']
+
+                    result = result.dropna(subset=['nav'])
+                    result = result.sort_values('date').reset_index(drop=True)
+                    
+                    logger.info(f"akshare: {func_name} 返回 {len(result)} 条数据")
+                    return result
+                    
                 except Exception as e:
                     logger.warning(f"ak.{func_name} error: {e}")
         return None
