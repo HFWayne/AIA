@@ -71,6 +71,7 @@ class DailyKlineAkShare(Base):
             "high": float(self.high) if self.high else 0,
             "low": float(self.low) if self.low else 0,
             "close": float(self.close) if self.close else 0,
+            "nav": float(self.close) if self.close else 0,
             "volume": float(self.volume) if self.volume else 0,
             "adj_close": float(self.adj_close) if self.adj_close else 0,
         }
@@ -108,6 +109,7 @@ class DailyKlineTushare(Base):
             "high": float(self.high) if self.high else 0,
             "low": float(self.low) if self.low else 0,
             "close": float(self.close) if self.close else 0,
+            "nav": float(self.close) if self.close else 0,
             "volume": float(self.volume) if self.volume else 0,
             "adj_close": float(self.adj_close) if self.adj_close else 0,
         }
