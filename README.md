@@ -6,6 +6,7 @@
 
 - ✅ **本地数据库存储**：MySQL 存储历史数据，支持多年回测
 - ✅ **Redis 缓存加速**：热点数据缓存，大幅减少 API 调用
+- ✅ **分级缓存**：L1 内存 + L2 Redis 多级缓存策略
 - ✅ **多种数据源**：支持 tushare、akshare、baostock，自动切换
 - ✅ **单股票/多股票回测**：支持单只股票分析和多只股票对比
 - ✅ **灵活定投设置**：
@@ -16,18 +17,25 @@
 - ✅ **止损止盈策略**：
   - 止损：收益率低于阈值时触发，按比例卖出
   - 止盈（最大回撤法）：达到目标收益率后进入观察期，从高点回撤超过阈值时卖出
+- ✅ **补仓策略**：支持多档位下跌补仓
+- ✅ **收益增强**：浮亏指定幅度后恢复定投金额
 - ✅ **可视化图表**：净值走势、投入收益曲线、K线图、收益对比等
 - ✅ **报告管理**：保存、加载、对比历史回测报告
+- ✅ **报告导出**：Excel/CSV 多格式导出
+- ✅ **高级分析**：夏普比率、卡玛比率、索提诺比率、最大回撤等风险指标
 - ✅ **自动回测任务**：多股票多策略批量回测
+- ✅ **进度追踪**：实时进度显示
 - ✅ **自选股管理**：股票池管理，支持分组
 - ✅ **策略模板**：预设多种策略，快速复用
+- ✅ **增量同步**：自动检测最新数据，只同步新增内容
+- ✅ **自动化测试**：63+ 单元测试，覆盖核心功能
 
 ## 快速开始
 
 ### 1. 安装依赖
 
 ```bash
-pip install streamlit pandas matplotlib tushare akshare baostock sqlalchemy pymysql redis
+pip install streamlit pandas matplotlib tushare akshare baostock sqlalchemy pymysql redis openpyxl
 ```
 
 ### 2. 配置数据库（可选，推荐）
@@ -76,14 +84,10 @@ streamlit run app.py
 
 ### 数据同步概述
 
-系统支持将 tushare 数据同步到本地 MySQL 数据库，并使用 Redis 缓存热点数据：
+系统支持将免费数据源（akshare/baostock）同步到本地 MySQL 数据库，并使用 Redis 缓存热点数据：
 
 ```
-请求 → Redis缓存（命中直接返回）
-      ↓ 未命中
-    MySQL数据库（命中返回并缓存）
-      ↓ 未命中
-    tushare API（获取后存入数据库和缓存）
+请求 → L1内存缓存 → L2 Redis缓存 → MySQL数据库 → akshare/baostock API
 ```
 
 ### 基本命令
@@ -99,7 +103,6 @@ python -m data_source.db.migrations --sync-stocks
 python -m data_source.db.migrations --code 510300
 
 # 全量同步（首次运行，获取所有股票历史数据）
-# 注意：这是高效模式，按日期批量获取，效率高
 python -m data_source.db.migrations --full
 
 # 每日增量同步（建议每天定时执行）
@@ -109,171 +112,132 @@ python -m data_source.db.migrations --incremental
 python -m data_source.db.migrations --stats
 ```
 
-### 补齐遗漏数据
+### 增量同步 API
 
-如果某天忘记执行增量同步，可以使用以下命令自动检测并补齐：
+```python
+from data_source.sync.free_sync import FreeDataSync
 
-```bash
-# 检测并补齐缺失数据（默认检测最近30天）
-python -m data_source.db.migrations --missing
+sync = FreeDataSync()
 
-# 指定检测天数范围
-python -m data_source.db.migrations --missing 60
+# 增量同步单只股票（自动检测最新日期）
+sync.sync_daily_kline_incremental(code='600036')
 
-# 仅检查缺失情况（不补齐）
-python -m data_source.db.migrations --check-missing
+# 批量增量同步
+sync.sync_daily_kline_batch(
+    codes=['600036', '000001'],
+    incremental=True
+)
+
+# 同步自选股
+sync.sync_watchlist_stocks(watchlist_codes=['600036', '000001'])
 ```
 
-### 按日期范围同步
+## 回测分析功能
 
-```bash
-# 按指定日期同步所有股票
-python -m data_source.db.migrations --date 20240325
+### 风险指标计算
 
-# 按日期范围同步（YYYYMMDD YYYYMMDD）
-python -m data_source.db.migrations --range 20200101 20240325
+```python
+from backtest.analysis import BacktestAnalyzer, analyze_backtest
+
+# 分析回测结果
+analyzer = BacktestAnalyzer(risk_free_rate=0.03)
+metrics = analyzer.analyze_trades(trades_df)
+
+print(f"夏普比率: {metrics.sharpe_ratio:.2f}")
+print(f"卡玛比率: {metrics.calmar_ratio:.2f}")
+print(f"索提诺比率: {metrics.sortino_ratio:.2f}")
+print(f"最大回撤: {metrics.max_drawdown:.2f}%")
+print(f"年化收益率: {metrics.annual_return * 100:.2f}%")
+print(f"胜率: {metrics.win_rate:.1f}%")
 ```
 
-### 设置定时任务
+### 多策略对比
 
-#### Windows 任务计划程序
+```python
+from backtest.analysis import compare_backtests
 
-```batch
-# 创建每日下午6点执行的任务
-schtasks /create /tn "StockDataSync" /tr "python E:\code\AIA\data_source\db\migrations\__main__.py --incremental" /sc daily /st 18:00
+results = {
+    "保守策略": result1,
+    "激进策略": result2
+}
+df = compare_backtests(results)
 ```
 
-#### Linux crontab
+## 报告导出功能
 
-```bash
-# 编辑 crontab
-crontab -e
+```python
+from backtest.report_exporter import ReportExporter, export_report, export_comparison
 
-# 添加以下行：每天下午6点执行
-0 18 * * * cd /path/to/AIA && python -m data_source.db.migrations --incremental >> logs/sync.log 2>&1
-```
+# 导出单个报告
+exporter = ReportExporter()
+exporter.export_excel(report)    # Excel 格式
+exporter.export_csv(report)      # CSV 格式
 
-## 使用说明
-
-### 自选股管理
-
-1. 切换到"⭐ 自选股" Tab
-2. 创建股票池（如：宽基ETF、行业ETF）
-3. 添加股票：
-   - 按代码添加（支持自动查询股票信息）
-   - 按名称搜索（从tushare搜索）
-   - 批量添加
-   - 选择预设ETF
-
-### 策略管理
-
-1. 切换到"🎯 策略管理" Tab
-2. 使用预设策略（基础定投、稳健定投、积极定投等）
-3. 或创建自定义策略，设置：
-   - 投资频率和金额
-   - 止损止盈参数
-   - 补仓策略
-   - 收益增强策略
-
-### 自动回测任务
-
-1. 切换到"📋 自动回测" Tab
-2. 选择自选股列表和策略
-3. 设置日期范围
-4. 点击"开始回测"
-5. 查看进度和结果
-
-### 单股票回测
-
-1. 输入股票代码（如 600036）
-2. 设置回测时间范围
-3. 设置定投参数
-4. 可选：启用止损/止盈策略
-5. 点击"开始回测"
-6. 可选：点击"保存报告"
-
-### 多股票对比
-
-1. 输入多个股票代码（逗号分隔）
-2. 设置回测参数
-3. 点击"开始对比"
-
-## 止损止盈策略说明
-
-### 止损策略
-
-- **止损率**：当收益率低于此值时触发止损
-- **卖出比例**：触发止损时卖出的持仓比例
-
-### 止盈策略（最大回撤法）
-
-1. **观察期**：当累计收益率达到目标收益率时，进入观察期
-2. **追踪高点**：持续追踪持仓最高净值
-3. **触发卖出**：当从高点回撤超过阈值时，按比例卖出
-
-**示例**：
-- 止盈收益率 = 20%
-- 最大回撤阈值 = 10%
-- 卖出比例 = 50%
-
-```
-收益达到20% → 进入观察期 → 记录高点22%
-继续涨到25% → 更新高点25%
-跌到23%（回撤8%）→ 不卖出
-跌到22%（回撤12%）→ 触发卖出50%
+# 多报告对比导出
+comp_exporter = MultiReportExporter()
+comp_exporter.export_comparison_excel([report1, report2])
 ```
 
 ## 项目结构
 
 ```
 E:\code\AIA\
-├── app.py                      # Streamlit Web 应用
+├── app.py                      # Streamlit Web 应用入口
 ├── data_source/
-│   ├── config.py              # 配置文件（数据库、Redis、API配置）
-│   ├── fund_data_source.py    # 数据源接口（缓存优先）
+│   ├── config.py              # 配置文件
+│   ├── fund_data_source.py    # 数据源接口
 │   ├── cache/
-│   │   └── redis_client.py    # Redis 缓存客户端
+│   │   ├── redis_client.py    # Redis 缓存客户端
+│   │   └── tiered_cache.py    # 分级缓存 (L1+L2)
 │   ├── db/
-│   │   ├── models.py          # SQLAlchemy 数据模型
-│   │   ├── connection.py      # 数据库连接池
-│   │   └── migrations/
-│   │       ├── init.sql      # MySQL 初始化脚本
-│   │       └── __main__.py   # 命令行同步工具
+│   │   ├── models.py          # SQLAlchemy 模型
+│   │   ├── connection.py      # 数据库连接
+│   │   └── migrations/        # 数据库迁移
 │   └── sync/
-│       ├── tushare_sync.py   # tushare 数据同步服务
-│       └── scheduler.py       # 定时任务调度器
+│       ├── free_sync.py       # 免费数据同步
+│       └── scheduler.py        # 定时任务调度器
 ├── backtest/
-│   ├── dca_backtest.py       # 回测核心逻辑
+│   ├── dca_backtest.py       # DCA 回测引擎
 │   ├── visualization.py       # 可视化图表
+│   ├── analysis.py            # 回测分析 (夏普/卡玛比率)
 │   ├── report_manager.py      # 报告管理器
+│   ├── report_exporter.py     # 报告导出 (Excel/CSV)
 │   ├── watchlist_manager.py   # 自选股管理器
 │   ├── strategy_manager.py    # 策略管理器
-│   ├── page_watchlist.py      # 自选股页面
-│   ├── page_strategy.py       # 策略管理页面
-│   └── page_task.py           # 自动回测任务页面
-├── reports/                   # 保存的报告和数据
-│   ├── watchlists.json       # 自选股列表
-│   ├── strategies.json        # 策略模板
-│   └── auto/                  # 自动回测报告
-└── tests/                    # 单元测试
+│   ├── progress.py            # 进度追踪
+│   └── page_*.py             # Streamlit 页面组件
+├── tasks/
+│   └── task_manager.py        # 任务管理器
+├── tests/                     # 测试 (63+ 测试用例)
+│   ├── test_dca_backtest.py  # DCA 回测测试
+│   ├── test_new_features.py  # 新功能测试
+│   └── ui/                    # UI 集成测试
+└── reports/                   # 导出的报告
 ```
 
 ## 数据库表结构
 
 | 表名 | 说明 |
 |------|------|
-| stocks | 股票/ETF 基础信息 |
-| daily_kline | 日线行情数据 |
-| income | 利润表数据 |
-| fina_indicator | 主要财务指标 |
-| sync_log | 数据同步记录 |
-
-详细表结构请参考 `data_source/db/migrations/init.sql`
+| reports | 回测报告 |
+| watchlists | 自选股列表 |
+| watchlist_stocks | 自选股关联 |
+| strategy_templates | 策略模板 |
+| stocks | 股票基础信息 |
+| daily_kline | 日线数据 |
+| backtest_tasks | 回测任务 |
 
 ## 运行测试
 
 ```bash
+# 运行所有测试
 pytest tests/ -v
+
+# 生成 HTML 测试报告
+pytest tests/ --html=tests/report.html --self-contained-html
+
+# 带覆盖率
+pytest tests/ --cov=. --cov-report=html
 ```
 
 ## 常用股票代码
@@ -291,11 +255,10 @@ pytest tests/ -v
 
 ## 注意事项
 
-1. tushare 免费版有接口调用频率限制，建议设置 `REQUEST_DELAY = 0.3`
-2. 首次使用建议执行 `--full` 全量同步，可获取完整历史数据
+1. akshare/baostock 为免费数据源，无 API 调用限制
+2. 首次使用建议执行 `--full` 全量同步
 3. 建议每天定时执行 `--incremental` 增量同步
-4. 基金数据需要付费权限，股票数据使用 `daily` 接口
-5. 回测结果仅供参考，不构成投资建议
+4. 回测结果仅供参考，不构成投资建议
 
 ## License
 
