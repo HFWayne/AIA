@@ -431,8 +431,11 @@ def sidebar_params():
         data_source = st.selectbox(t("sidebar_select_source"), AVAILABLE_SOURCES, index=0)
     
     st.sidebar.markdown("---")
+    with st.sidebar.container():
+        render_language_selector()
+    
     st.sidebar.markdown(f"""
-    <div style="text-align: center; color: #64748B; font-size: 0.8rem; padding: 1rem;">
+    <div style="text-align: center; color: #64748B; font-size: 0.8rem; padding: 0.5rem;">
         📈 Stock DCA Backtesting {t("sidebar_version")}
     </div>
     """, unsafe_allow_html=True)
@@ -1026,8 +1029,6 @@ def main():
         📈 """ + t("app_title") + """
     </div>
     """, unsafe_allow_html=True)
-    
-    render_language_selector()
     
     if 'task_running' not in st.session_state:
         st.session_state['task_running'] = False
