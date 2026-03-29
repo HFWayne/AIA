@@ -153,7 +153,7 @@ class DatabaseTestHelper:
         engine = get_engine()
         required_tables = [
             'reports', 'watchlists', 'watchlist_stocks',
-            'strategy_templates', 'stocks', 'daily_kline'
+            'strategy_templates', 'stocks', 'daily_kline_akshare', 'daily_kline_tushare'
         ]
 
         with engine.connect() as conn:
