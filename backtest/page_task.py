@@ -76,7 +76,7 @@ class AutoTask:
             'started_at': self.started_at,
             'completed_at': self.completed_at,
             'results': {
-                f"{code}_{sid}": {
+                code_sid: {
                     'code': r.code,
                     'name': r.name,
                     'status': r.status.value,
