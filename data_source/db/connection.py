@@ -12,7 +12,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
 
-from data_source.config import MYSQL_CONFIG
+from data_source.config import MYSQL_CONFIG, ENABLE_MYSQL
 from data_source.db.models import Base
 
 logger = logging.getLogger(__name__)
@@ -21,10 +21,17 @@ _engine = None
 _SessionLocal = None
 
 
+def _check_enabled():
+    """检查 MySQL 是否启用"""
+    if not ENABLE_MYSQL:
+        raise RuntimeError("MySQL is disabled. Set ENABLE_MYSQL=True in config.py to enable.")
+
+
 def get_engine():
     """获取数据库引擎（单例）"""
     global _engine
     if _engine is None:
+        _check_enabled()
         connection_string = (
             f"mysql+pymysql://{MYSQL_CONFIG['user']}:{MYSQL_CONFIG['password']}"
             f"@{MYSQL_CONFIG['host']}:{MYSQL_CONFIG['port']}/{MYSQL_CONFIG['database']}"
@@ -55,6 +62,7 @@ def get_session_factory():
 @contextmanager
 def get_db_session() -> Generator[Session, None, None]:
     """获取数据库会话的上下文管理器"""
+    _check_enabled()
     SessionLocal = get_session_factory()
     session = SessionLocal()
     try:
@@ -83,6 +91,9 @@ def init_database(drop_existing: bool = False):
 
 def check_connection() -> bool:
     """检查数据库连接"""
+    if not ENABLE_MYSQL:
+        logger.warning("MySQL is disabled")
+        return False
     try:
         engine = get_engine()
         with engine.connect() as conn:

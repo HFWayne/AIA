@@ -11,7 +11,7 @@ from datetime import datetime
 
 import redis
 
-from data_source.config import REDIS_CONFIG, CACHE_EXPIRE
+from data_source.config import REDIS_CONFIG, CACHE_EXPIRE, ENABLE_REDIS
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,10 @@ class RedisCache:
 
     def __init__(self):
         self._client = None
-        self._connect()
+        if ENABLE_REDIS:
+            self._connect()
+        else:
+            logger.info("Redis is disabled by config")
 
     def _connect(self):
         """建立 Redis 连接"""
@@ -38,12 +41,16 @@ class RedisCache:
     @property
     def client(self) -> Optional[redis.Redis]:
         """获取 Redis 客户端"""
+        if not ENABLE_REDIS:
+            return None
         if self._client is None:
             self._connect()
         return self._client
 
     def is_available(self) -> bool:
         """检查 Redis 是否可用"""
+        if not ENABLE_REDIS:
+            return False
         if self._client is None:
             return False
         try:
