@@ -67,26 +67,29 @@ def get_language_name(locale: str) -> str:
 
 
 def render_language_selector():
-    """渲染语言选择器"""
+    """渲染语言选择器（下拉框样式）"""
     current = get_locale()
     
-    cols = st.columns([1, 1, 2])
-    with cols[0]:
-        is_active_zh = current == "zh_CN"
-        btn_label_zh = "🇨🇳 中文" + (" ✓" if is_active_zh else "")
-        if st.button(btn_label_zh, key="lang_zh", use_container_width=True):
-            set_locale("zh_CN")
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col3:
+        locale_options = ["zh_CN", "en_US"]
+        locale_labels = {
+            "zh_CN": "🇨🇳 中文",
+            "en_US": "🇺🇸 English"
+        }
+        
+        selected = st.selectbox(
+            "🌐",
+            options=locale_options,
+            index=locale_options.index(current),
+            format_func=lambda x: locale_labels[x],
+            key="language_selector",
+            label_visibility="collapsed"
+        )
+        
+        if selected != current:
+            set_locale(selected)
             st.rerun()
-    
-    with cols[1]:
-        is_active_en = current == "en_US"
-        btn_label_en = "🇺🇸 EN" + (" ✓" if is_active_en else "")
-        if st.button(btn_label_en, key="lang_en", use_container_width=True):
-            set_locale("en_US")
-            st.rerun()
-    
-    with cols[2]:
-        st.caption(f"{t('current_language')}: {get_language_name(current)}")
 
 
 def gettext(key: str) -> str:
