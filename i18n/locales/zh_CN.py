@@ -106,7 +106,7 @@ zh_CN = {
     "cause_network_error": "网络问题 - 无法连接到数据源服务器",
     "cause_data_not_synced": "数据未同步 - 数据库中没有该股票的历史数据",
     "suggest_change_code": "更换股票代码",
-    "suggest_change_source": "切换数据源（akshare/baostock）",
+    "suggest_change_source": "切换数据源（akshare/tushare）",
     "suggest_sync_data": "先同步股票数据到本地数据库",
     
     # 成功消息

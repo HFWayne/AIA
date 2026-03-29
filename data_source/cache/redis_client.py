@@ -173,19 +173,19 @@ class RedisCache:
 
 
 class CacheKeys:
-    """缓存 Key 命名空间"""
+    """缓存 Key 命名空间（区分数据源）"""
 
     @staticmethod
     def stock_info(code: str) -> str:
         return f"stock:{code}"
 
     @staticmethod
-    def daily_kline(code: str, date: str) -> str:
-        return f"kline:{code}:{date}"
+    def daily_kline(code: str, date: str, source: str = "akshare") -> str:
+        return f"kline:{source}:{code}:{date}"
 
     @staticmethod
-    def kline_range(code: str, start: str, end: str) -> str:
-        return f"kline:{code}:range:{start}:{end}"
+    def kline_range(code: str, start: str, end: str, source: str = "akshare") -> str:
+        return f"kline:{source}:{code}:range:{start}:{end}"
 
     @staticmethod
     def backtest(hash_key: str) -> str:
@@ -200,7 +200,9 @@ class CacheKeys:
         return "stocks:all"
 
     @staticmethod
-    def sync_status(table: str) -> str:
+    def sync_status(table: str, source: str = None) -> str:
+        if source:
+            return f"sync:{source}:{table}:status"
         return f"sync:{table}:status"
 
 

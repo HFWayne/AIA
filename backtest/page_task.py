@@ -322,7 +322,7 @@ def render_task_manager():
     with col_date2:
         end_date = st.date_input("结束日期", value=date(2024, 12, 31))
     with col_source:
-        data_source = st.selectbox("数据源", ["tushare", "akshare", "baostock"])
+        data_source = st.selectbox("数据源", ["akshare", "tushare"])
 
     if not selected_stocks:
         st.warning("请先选择股票")

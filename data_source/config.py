@@ -9,7 +9,7 @@ import os
 DATA_SOURCE = "akshare"
 REQUEST_DELAY = 0.3
 MAX_RETRIES = 3
-AVAILABLE_SOURCES = ["tushare", "akshare", "baostock", "auto"]
+AVAILABLE_SOURCES = ["akshare", "tushare", "auto"]
 
 # 从 apikey.py 导入敏感信息
 try:

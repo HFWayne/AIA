@@ -15,9 +15,8 @@ from pathlib import Path
 
 import tushare as ts
 import akshare as ak
-import baostock as bs
 
-from data_source.config import TU_SHARE_TOKEN, REQUEST_DELAY
+from data_source.config import TU_SHARE_TOKEN
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -58,7 +57,6 @@ class DataSourceDiagnostic:
         
         self._diagnose_tushare()
         self._diagnose_akshare()
-        self._diagnose_baostock()
         
         return DiagnosticResult(
             timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -191,65 +189,6 @@ class DataSourceDiagnostic:
 
         self.results.append(status)
 
-    def _diagnose_baostock(self):
-        """诊断 Baostock"""
-        logger.info("诊断 Baostock...")
-        status = SourceStatus(
-            name="baostock",
-            display_name="Baostock",
-            connected=False,
-            latency_ms=None,
-            error_message=None,
-            capabilities=[],
-            supported_types=[],
-            limitations=[]
-        )
-
-        try:
-            bs.login()
-            
-            def test_api():
-                rs = bs.query_history_k_data_plus(
-                    "sh.600036",
-                    "date,open,high,low,close",
-                    start_date='2024-01-01',
-                    end_date='2024-01-10',
-                    frequency="d"
-                )
-                return rs
-
-            connected, latency, error = self._measure_latency(test_api)
-            bs.logout()
-            
-            status.connected = connected
-            status.latency_ms = latency
-
-            if connected:
-                status.capabilities = [
-                    "股票历史行情（后复权）",
-                    "股票基本面数据",
-                    "指数行情",
-                    "融资融券数据",
-                    "停复牌数据",
-                ]
-                status.supported_types = [
-                    "A股（沪深京）",
-                    "指数",
-                ]
-                status.limitations = [
-                    "完全免费",
-                    "支持后复权数据",
-                    "数据更新可能略有延迟",
-                ]
-            else:
-                status.error_message = error
-
-        except Exception as e:
-            status.connected = False
-            status.error_message = str(e)
-
-        self.results.append(status)
-
     def _generate_summary(self) -> Dict:
         """生成摘要"""
         connected = [s for s in self.results if s.connected]
@@ -304,7 +243,7 @@ class DataSourceDiagnostic:
 
 ### 自动切换模式（推荐）
 
-系统默认使用 **tushare** 作为主数据源，当主数据源不可用时自动切换到 **akshare**，最后尝试 **baostock**。
+系统默认使用 **akshare** 作为主数据源，当主数据源不可用时自动切换到 **tushare**。
 
 ### 回退链路
 
@@ -314,9 +253,8 @@ class DataSourceDiagnostic:
 
 ## 使用说明
 
-1. **Tushare**: 需要配置 `TU_SHARE_TOKEN` 环境变量，免费版有调用频率限制
-2. **AkShare**: 完全免费，数据来源于东方财富，建议作为主力数据源
-3. **Baostock**: 完全免费，支持后复权数据，适合长期回测
+1. **AkShare**: 完全免费，数据来源于东方财富，建议作为主力数据源
+2. **Tushare**: 需要配置 `TU_SHARE_TOKEN` 环境变量，免费版有调用频率限制
 
 ---
 *此报告由系统自动生成*
@@ -388,7 +326,7 @@ class DataSourceDiagnostic:
     <div class="card">
         <h2>推荐使用方案</h2>
         <p><strong>自动切换模式（推荐）</strong></p>
-        <p>系统默认使用 <strong>tushare</strong> 作为主数据源，当主数据源不可用时自动切换到 <strong>akshare</strong>，最后尝试 <strong>baostock</strong>。</p>
+        <p>系统默认使用 <strong>akshare</strong> 作为主数据源，当主数据源不可用时自动切换到 <strong>tushare</strong>。</p>
         <p><strong>回退链路:</strong></p>
         <ol>
 """ + ''.join(f'<li>{s}</li>' for s in result.summary['fallback_chain']) + """
@@ -397,9 +335,8 @@ class DataSourceDiagnostic:
     
     <div class="card">
         <h2>使用说明</h2>
-        <p><strong>Tushare:</strong> 需要配置 TU_SHARE_TOKEN 环境变量，免费版有调用频率限制</p>
         <p><strong>AkShare:</strong> 完全免费，数据来源于东方财富，建议作为主力数据源</p>
-        <p><strong>Baostock:</strong> 完全免费，支持后复权数据，适合长期回测</p>
+        <p><strong>Tushare:</strong> 需要配置 TU_SHARE_TOKEN 环境变量，免费版有调用频率限制</p>
     </div>
     
     <footer style="text-align: center; color: #64748B; margin-top: 40px;">

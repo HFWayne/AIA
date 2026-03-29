@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 akshare 数据同步服务
-将 akshare 数据同步到本地数据库
+将 akshare 数据同步到本地数据库（daily_kline_akshare 表）
 """
 
 import logging
@@ -124,7 +124,7 @@ class AkshareSync:
             return 0
 
     def sync_daily_kline(self, code: str, start_date: str = None, end_date: str = None) -> int:
-        """同步单只股票的日线数据到数据库"""
+        """同步单只股票的日线数据到 daily_kline_akshare 表"""
         if not ENABLE_MYSQL:
             logger.warning("MySQL is disabled, skipping daily kline sync")
             return 0
@@ -163,7 +163,7 @@ class AkshareSync:
                 if df.empty:
                     return 0
 
-                from data_source.db.connection import get_engine
+                from data_source.db.connection import get_db_session
                 from sqlalchemy import text
 
                 klines_data = []
@@ -182,25 +182,22 @@ class AkshareSync:
                         'pct_chg': float(row.get('涨跌幅', 0)) / 100 if '涨跌幅' in row else 0,
                     })
 
-                df_kline = pd.DataFrame(klines_data)
-                
-                with get_engine().connect() as conn:
-                    for _, row in df_kline.iterrows():
+                with get_db_session() as session:
+                    for kline in klines_data:
                         sql = text("""
-                            INSERT IGNORE INTO daily_kline 
+                            INSERT IGNORE INTO daily_kline_akshare 
                             (code, trade_date, open, high, low, close, volume, amount, adj_close, turn, pct_chg)
                             VALUES (:code, :trade_date, :open, :high, :low, :close, :volume, :amount, :adj_close, :turn, :pct_chg)
                         """)
-                        conn.execute(sql, row.to_dict())
-                    conn.commit()
+                        session.execute(sql, kline)
 
-                records = len(df_kline)
+                records = len(klines_data)
                 
                 if self.cache:
-                    cache_key = CacheKeys.kline_range(code, start_date, end_date)
+                    cache_key = CacheKeys.kline_range(code, start_date, end_date, source="akshare")
                     self.cache.delete(cache_key)
                 
-                logger.info(f"同步 {code} 日线数据: {records} 条")
+                logger.info(f"同步 {code} 日线数据(akshare): {records} 条")
                 return records
 
             except Exception as e:
@@ -239,13 +236,13 @@ class AkshareSync:
             
         try:
             from data_source.db.connection import get_db_session
-            from data_source.db.models import DailyKline
+            from data_source.db.models import DailyKlineAkShare
             
             code = code.zfill(6)
             with get_db_session() as session:
-                latest = session.query(DailyKline).filter(
-                    DailyKline.code == code
-                ).order_by(DailyKline.trade_date.desc()).first()
+                latest = session.query(DailyKlineAkShare).filter(
+                    DailyKlineAkShare.code == code
+                ).order_by(DailyKlineAkShare.trade_date.desc()).first()
                 
                 if latest:
                     return str(latest.trade_date)
@@ -264,11 +261,11 @@ class AkshareSync:
             
         try:
             from data_source.db.connection import get_db_session
-            from data_source.db.models import DailyKline
+            from data_source.db.models import DailyKlineAkShare
             
             with get_db_session() as session:
-                oldest = session.query(DailyKline.trade_date).order_by(DailyKline.trade_date.asc()).first()
-                newest = session.query(DailyKline.trade_date).order_by(DailyKline.trade_date.desc()).first()
+                oldest = session.query(DailyKlineAkShare.trade_date).order_by(DailyKlineAkShare.trade_date.asc()).first()
+                newest = session.query(DailyKlineAkShare.trade_date).order_by(DailyKlineAkShare.trade_date.desc()).first()
                 
             return {
                 "start": str(oldest[0]) if oldest else None,
@@ -277,6 +274,18 @@ class AkshareSync:
         except Exception as e:
             logger.warning(f"获取数据范围失败: {e}")
             return {"start": None, "end": None}
+
+    def get_kline_count(self) -> int:
+        """获取数据库中日线数据数量"""
+        if not ENABLE_MYSQL:
+            return 0
+        try:
+            from data_source.db.connection import get_db_session
+            from data_source.db.models import DailyKlineAkShare
+            with get_db_session() as session:
+                return session.query(DailyKlineAkShare).count()
+        except:
+            return 0
 
 
 def sync_stock_list() -> int:

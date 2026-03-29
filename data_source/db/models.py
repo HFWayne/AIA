@@ -39,9 +39,9 @@ class Stock(Base):
         }
 
 
-class DailyKline(Base):
-    """日线行情表"""
-    __tablename__ = "daily_kline"
+class DailyKlineAkShare(Base):
+    """AkShare 日线行情表"""
+    __tablename__ = "daily_kline_akshare"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     code = Column(String(10), nullable=False, comment="股票代码")
@@ -52,15 +52,52 @@ class DailyKline(Base):
     close = Column(DECIMAL(10, 3), comment="收盘价")
     volume = Column(DECIMAL(20, 2), comment="成交量")
     amount = Column(DECIMAL(20, 2), comment="成交额")
-    adj_close = Column(DECIMAL(10, 3), comment="后复权收盘价")
+    adj_close = Column(DECIMAL(10, 3), comment="复权收盘价")
     turn = Column(DECIMAL(10, 4), comment="换手率")
     pct_chg = Column(DECIMAL(10, 4), comment="涨跌幅")
     created_at = Column(DateTime, default=datetime.now)
 
     __table_args__ = (
-        UniqueConstraint("code", "trade_date", name="uk_code_date"),
-        Index("idx_trade_date", "trade_date"),
-        Index("idx_code", "code"),
+        UniqueConstraint("code", "trade_date", name="uk_akshare_code_date"),
+        Index("idx_akshare_trade_date", "trade_date"),
+        Index("idx_akshare_code", "code"),
+    )
+
+    def to_dict(self):
+        return {
+            "code": self.code,
+            "date": str(self.trade_date) if self.trade_date else None,
+            "open": float(self.open) if self.open else 0,
+            "high": float(self.high) if self.high else 0,
+            "low": float(self.low) if self.low else 0,
+            "close": float(self.close) if self.close else 0,
+            "volume": float(self.volume) if self.volume else 0,
+            "adj_close": float(self.adj_close) if self.adj_close else 0,
+        }
+
+
+class DailyKlineTushare(Base):
+    """Tushare 日线行情表"""
+    __tablename__ = "daily_kline_tushare"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    code = Column(String(10), nullable=False, comment="股票代码")
+    trade_date = Column(Date, nullable=False, comment="交易日期")
+    open = Column(DECIMAL(10, 3), comment="开盘价")
+    high = Column(DECIMAL(10, 3), comment="最高价")
+    low = Column(DECIMAL(10, 3), comment="最低价")
+    close = Column(DECIMAL(10, 3), comment="收盘价")
+    volume = Column(DECIMAL(20, 2), comment="成交量")
+    amount = Column(DECIMAL(20, 2), comment="成交额")
+    adj_close = Column(DECIMAL(10, 3), comment="复权收盘价")
+    turn = Column(DECIMAL(10, 4), comment="换手率")
+    pct_chg = Column(DECIMAL(10, 4), comment="涨跌幅")
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint("code", "trade_date", name="uk_tushare_code_date"),
+        Index("idx_tushare_trade_date", "trade_date"),
+        Index("idx_tushare_code", "code"),
     )
 
     def to_dict(self):
@@ -129,6 +166,7 @@ class SyncLog(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     table_name = Column(String(50), nullable=False, comment="表名")
+    source = Column(String(20), comment="数据源: akshare/tushare")
     code = Column(String(10), comment="股票代码")
     start_date = Column(Date, comment="开始日期")
     end_date = Column(Date, comment="结束日期")

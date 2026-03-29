@@ -16,7 +16,7 @@ from sqlalchemy import text
 
 from data_source.config import TU_SHARE_TOKEN, REQUEST_DELAY, SYNC_CONFIG
 from data_source.db.connection import get_db_session, get_engine
-from data_source.db.models import Stock, DailyKline, Income, FinaIndicator, SyncLog
+from data_source.db.models import Stock, DailyKlineTushare, Income, FinaIndicator, SyncLog
 from data_source.cache import get_cache, CacheKeys
 
 logger = logging.getLogger(__name__)
@@ -165,11 +165,11 @@ class TushareSync:
         
         if klines_data:
             df_kline = pd.DataFrame(klines_data)
-            df_kline.to_sql('daily_kline', get_engine(), if_exists='append', index=False, chunksize=5000)
+            df_kline.to_sql('daily_kline_tushare', get_engine(), if_exists='append', index=False, chunksize=5000)
             records = len(df_kline)
             
             for code in df_kline['code'].unique():
-                cache_key = CacheKeys.kline_range(code, trade_date, trade_date)
+                cache_key = CacheKeys.kline_range(code, trade_date, trade_date, source="tushare")
                 self.cache.delete(cache_key)
         
         return records
@@ -210,7 +210,7 @@ class TushareSync:
                 })
             
             df_kline = pd.DataFrame(klines_data)
-            df_kline.to_sql('daily_kline', get_engine(), if_exists='append', index=False, chunksize=5000)
+            df_kline.to_sql('daily_kline_tushare', get_engine(), if_exists='append', index=False, chunksize=5000)
             records = len(df_kline)
             
             cache_key = CacheKeys.kline_range(code, start_date, end_date)
@@ -316,9 +316,9 @@ class TushareSync:
         """获取数据库中最新日期"""
         try:
             with get_db_session() as session:
-                latest = session.query(DailyKline).filter(
-                    DailyKline.code == code
-                ).order_by(DailyKline.trade_date.desc()).first()
+                latest = session.query(DailyKlineTushare).filter(
+                    DailyKlineTushare.code == code
+                ).order_by(DailyKlineTushare.trade_date.desc()).first()
                 if latest:
                     return str(latest.trade_date)
         except Exception as e:
@@ -337,7 +337,7 @@ class TushareSync:
         """获取数据库中日线数据数量"""
         try:
             with get_db_session() as session:
-                return session.query(DailyKline).count()
+                return session.query(DailyKlineTushare).count()
         except:
             return 0
 
@@ -345,7 +345,7 @@ class TushareSync:
         """检测缺失的交易日，返回需要补齐的日期列表"""
         try:
             with get_db_session() as session:
-                existing_dates = session.query(DailyKline.trade_date).distinct().all()
+                existing_dates = session.query(DailyKlineTushare.trade_date).distinct().all()
                 existing_set = set(str(d[0]) for d in existing_dates)
             
             end = end_date or datetime.now().strftime('%Y%m%d')
@@ -398,8 +398,8 @@ class TushareSync:
         """获取数据库中数据的日期范围"""
         try:
             with get_db_session() as session:
-                oldest = session.query(DailyKline.trade_date).order_by(DailyKline.trade_date.asc()).first()
-                newest = session.query(DailyKline.trade_date).order_by(DailyKline.trade_date.desc()).first()
+                oldest = session.query(DailyKlineTushare.trade_date).order_by(DailyKlineTushare.trade_date.asc()).first()
+                newest = session.query(DailyKlineTushare.trade_date).order_by(DailyKlineTushare.trade_date.desc()).first()
                 
             return {
                 "start": str(oldest[0]) if oldest else None,
