@@ -443,10 +443,27 @@ def sidebar_params():
 
 def plot_report_trades(report):
     """绘制报告的交易曲线"""
-    trades = pd.DataFrame(report.trades)
-    trades['date'] = pd.to_datetime(trades['date'])
-    trades = trades.sort_values('date')
-    trades['total_invested'] = [report.investment_amount * i for i in range(1, len(trades) + 1)]
+    try:
+        if report.trades is None or len(report.trades) == 0:
+            st.warning("暂无交易记录")
+            return None
+        
+        if isinstance(report.trades, pd.DataFrame):
+            trades = report.trades.copy()
+        else:
+            trades = pd.DataFrame(report.trades)
+        
+        if 'date' not in trades.columns:
+            st.warning("交易记录缺少日期字段")
+            return None
+        
+        trades['date'] = pd.to_datetime(trades['date'], errors='coerce')
+        trades = trades.dropna(subset=['date'])
+        trades = trades.sort_values('date')
+        trades['total_invested'] = [report.investment_amount * i for i in range(1, len(trades) + 1)]
+    except Exception as e:
+        st.error(f"绘制图表失败: {str(e)}")
+        return None
     
     fig, axes = plt.subplots(2, 1, figsize=(10, 8), dpi=100)
     
@@ -615,7 +632,20 @@ def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, 
                 trades_display['组合价值(元)'] = trades_display['组合价值(元)'].round(0).astype(int)
                 st.dataframe(trades_display, width='stretch', height=300, hide_index=True)
         elif run_btn:
-            st.error("❌ 获取数据失败，请检查股票代码或尝试其他数据源")
+            st.error("❌ 获取数据失败")
+            with st.expander("💡 排查建议"):
+                st.markdown("""
+                **可能的原因：**
+                1. **股票代码错误** - 请确认股票代码是否正确（如 600036）
+                2. **Tushare 权限不足** - 免费版可能没有该股票的数据权限
+                3. **网络问题** - 无法连接到数据源服务器
+                4. **数据未同步** - 数据库中没有该股票的历史数据
+                
+                **建议尝试：**
+                - 更换股票代码
+                - 切换数据源（akshare/baostock）
+                - 先同步股票数据到本地数据库
+                """)
         else:
             st.markdown("""
             <div class="empty-state">
@@ -714,7 +744,18 @@ def page_compare(sd2, ed2, amt2, esl, slr, etp, tpr, mdt, tpsr, ds):
                     fig = visualizer.plot_comparison(results)
                     st.pyplot(fig)
                 else:
-                    st.error("❌ 获取数据失败，请检查股票代码或尝试其他数据源")
+                    st.error("❌ 获取数据失败")
+                    with st.expander("💡 排查建议"):
+                        st.markdown("""
+                        **可能的原因：**
+                        1. **股票代码错误** - 请确认所有股票代码是否正确
+                        2. **Tushare 权限不足** - 免费版可能没有部分股票的数据权限
+                        3. **网络问题** - 无法连接到数据源服务器
+                        
+                        **建议尝试：**
+                        - 更换股票代码，使用有数据的股票
+                        - 切换数据源（akshare/baostock）
+                        """)
         else:
             st.markdown("""
             <div class="empty-state">
@@ -836,7 +877,8 @@ def page_reports():
                 
                 st.markdown("")
                 fig = plot_report_trades(report)
-                st.pyplot(fig)
+                if fig is not None:
+                    st.pyplot(fig)
                 
                 col_del, col_exp, col_trades = st.columns([1, 1, 4])
                 with col_del:
