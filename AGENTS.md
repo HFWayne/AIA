@@ -10,6 +10,10 @@
 - MySQL 数据库 + Redis 缓存持久化
 - 自选股管理、策略管理、报告管理
 - 自动化测试框架
+- 回测结果高级分析 (夏普比率、卡玛比率等)
+- 报告导出 (Excel/CSV)
+- 增量数据同步
+- 分级缓存策略
 
 ## 构建/测试/运行命令
 
@@ -61,14 +65,21 @@ project/
 │   │   ├── models.py         # SQLAlchemy 模型
 │   │   ├── connection.py     # 数据库连接
 │   │   └── migrations/       # SQL 迁移脚本
-│   └── cache/
-│       └── redis_client.py   # Redis 客户端
+│   ├── cache/
+│   │   ├── redis_client.py   # Redis 客户端
+│   │   └── tiered_cache.py   # 分级缓存 (L1内存 + L2 Redis)
+│   └── sync/
+│       ├── free_sync.py      # 免费数据同步 (增量更新)
+│       └── scheduler.py       # 定时任务调度器
 ├── backtest/                 # 回测逻辑
 │   ├── dca_backtest.py       # DCA 回测引擎
-│   ├── visualization.py      # 可视化
+│   ├── visualization.py        # 可视化
+│   ├── analysis.py            # 回测结果分析 (夏普/卡玛/索提诺比率)
 │   ├── report_manager.py     # 报告管理器 (DB + Redis)
+│   ├── report_exporter.py    # 报告导出 (Excel/CSV)
 │   ├── watchlist_manager.py  # 自选股管理器
 │   ├── strategy_manager.py   # 策略管理器
+│   ├── progress.py           # 回测进度追踪
 │   ├── cache_keys.py         # 缓存 key 定义
 │   └── __init__.py
 ├── tasks/                    # 任务相关
@@ -76,6 +87,7 @@ project/
 ├── tests/                   # 测试
 │   ├── conftest.py          # 共享 fixtures
 │   ├── test_dca_backtest.py # DCA 回测测试
+│   ├── test_new_features.py # 新功能测试
 │   ├── ui/
 │   │   ├── conftest.py      # UI 测试辅助类和 fixtures
 │   │   ├── test_managers.py # Manager 集成测试
@@ -100,12 +112,99 @@ project/
 | 类 | 模块 | 说明 |
 |---|------|------|
 | `ReportManager` | backtest/report_manager.py | 报告管理 (DB + Redis) |
+| `ReportExporter` | backtest/report_exporter.py | 报告导出 (Excel/CSV) |
 | `WatchlistManager` | backtest/watchlist_manager.py | 自选股管理 |
 | `StrategyManager` | backtest/strategy_manager.py | 策略管理 |
+| `BacktestAnalyzer` | backtest/analysis.py | 回测结果分析 |
+| `ComparisonAnalyzer` | backtest/analysis.py | 多策略对比分析 |
+| `ProgressTracker` | backtest/progress.py | 回测进度追踪 |
+| `FreeDataSync` | data_source/sync/free_sync.py | 增量数据同步 |
+| `TieredCache` | data_source/cache/tiered_cache.py | 分级缓存 |
 | `TaskManager` | tasks/task_manager.py | 任务管理 |
 | `FundDataSource` | data_source/fund_data_source.py | 数据源 |
 | `DCABacktest` | backtest/dca_backtest.py | DCA 回测引擎 |
 | `FundBacktester` | backtest/__init__.py | 回测包装器 |
+
+## 核心功能
+
+### 增量数据同步
+```python
+from data_source.sync.free_sync import FreeDataSync
+
+sync = FreeDataSync()
+
+# 增量同步单只股票
+sync.sync_daily_kline_incremental(code='600036')
+
+# 批量增量同步
+sync.sync_daily_kline_batch(codes=['600036', '000001'], incremental=True)
+
+# 同步自选股
+sync.sync_watchlist_stocks(watchlist_codes=['600036', '000001'])
+```
+
+### 回测结果分析
+```python
+from backtest.analysis import BacktestAnalyzer, analyze_backtest
+
+# 分析单个回测结果
+analyzer = BacktestAnalyzer(risk_free_rate=0.03)
+metrics = analyzer.analyze_trades(trades_df)
+print(f"夏普比率: {metrics.sharpe_ratio}")
+print(f"卡玛比率: {metrics.calmar_ratio}")
+print(f"最大回撤: {metrics.max_drawdown}%")
+
+# 便捷函数
+metrics = analyze_backtest(backtest_result)
+```
+
+### 多策略对比
+```python
+from backtest.analysis import compare_backtests
+
+results = {
+    "保守策略": result1,
+    "激进策略": result2
+}
+df = compare_backtests(results)
+```
+
+### 报告导出
+```python
+from backtest.report_exporter import ReportExporter, export_report, export_comparison
+
+# 导出单个报告
+exporter = ReportExporter()
+exporter.export_excel(report)
+exporter.export_csv(report)
+
+# 导出多报告对比
+from backtest.report_exporter import MultiReportExporter
+comp_exporter = MultiReportExporter()
+comp_exporter.export_comparison_excel([report1, report2])
+```
+
+### 分级缓存
+```python
+from data_source.cache.tiered_cache import TieredCache, CacheWarming
+
+# 使用分级缓存
+cache = TieredCache(l1_size=200, l1_ttl=300)
+value = cache.get("key", l2_getter=lambda k: fetch_from_db(k))
+
+# 缓存预热
+warmer = CacheWarming(cache, redis_cache)
+warmer.warm_watchlist_klines(['600036', '000001'], days=30)
+```
+
+### 进度追踪
+```python
+from backtest.progress import ProgressTracker
+
+tracker = ProgressTracker("task1", total_steps=100)
+tracker.add_callback(lambda p: print(f"{p.percent}%"))
+tracker.update(50, "处理中", "已完成一半")
+```
 
 ## 代码风格指南
 
@@ -258,6 +357,7 @@ report_id = rm.save_report(backtest_result)
 ### 测试分类
 - **单元测试**：DCA 回测核心逻辑 (`tests/test_dca_backtest.py`)
 - **Manager 测试**：各管理器的 CRUD 操作 (`tests/ui/test_managers.py`)
+- **新功能测试**：分析、导出、进度、缓存 (`tests/test_new_features.py`)
 - **集成测试**：端到端工作流 (`tests/ui/test_integration.py`)
 
 ### Fixtures
@@ -277,6 +377,9 @@ pytest tests/test_dca_backtest.py::TestDCABacktest::test_simple_dca_basic -v
 # 运行管理器测试
 pytest tests/ui/test_managers.py -v
 
+# 运行新功能测试
+pytest tests/test_new_features.py -v
+
 # 运行集成测试
 pytest tests/ui/test_integration.py -v
 ```
@@ -294,3 +397,24 @@ pytest tests/ui/test_integration.py -v
     }
 }
 ```
+
+## 待完成功能 (TODO)
+
+| 优先级 | 功能 | 状态 |
+|--------|------|------|
+| **P1 - 核心功能** |||
+| 1 | 多股票批量回测 | ✅ 已完成 |
+| 2 | 策略模板管理 | ✅ 已完成 |
+| 3 | 回测任务调度 | ✅ 已完成 |
+| **P1 - 数据管理** |||
+| 4 | 历史数据自动同步 | ✅ 已完成 |
+| 5 | 数据缓存策略优化 | ✅ 已完成 |
+| **P2 - 增强功能** |||
+| 6 | 回测报告导出 (PDF/Excel) | ✅ 已完成 |
+| 7 | 组合对比可视化 | ✅ 已完成 |
+| 8 | 回测结果分析 | ✅ 已完成 |
+| 9 | 实时价格获取 | ⏳ 待优化 |
+| **P3 - 体验优化** |||
+| 10 | 回测进度显示 | ✅ 已完成 |
+| 11 | 移动端适配 | ❌ 未开始 |
+| 12 | 多语言支持 | ❌ 未开始 |
