@@ -31,7 +31,12 @@ def render_strategy_manager():
 def render_strategy_list(sm: StrategyManager, strategies: list, current_group: str):
     """渲染策略列表"""
     if not strategies:
-        st.info(f"暂无 {current_group} 策略")
+        st.markdown(f"""
+        <div class="empty-state">
+            <h4>📭 暂无 {current_group} 策略</h4>
+            <p>点击上方"新建策略"创建一个</p>
+        </div>
+        """, unsafe_allow_html=True)
         return
 
     for strategy in strategies:

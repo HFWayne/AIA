@@ -16,8 +16,13 @@ def render_watchlist_manager():
     watchlists = wm.list_watchlists()
 
     if not watchlists:
-        st.info("暂无自选股列表，请先创建一个")
-        with st.expander("创建新列表"):
+        st.markdown("""
+        <div class="empty-state">
+            <h3>📭 暂无自选股列表</h3>
+            <p>请先创建一个自选股列表</p>
+        </div>
+        """, unsafe_allow_html=True)
+        with st.expander("➕ 创建新列表", expanded=True):
             render_create_watchlist(wm, [])
         return
 
