@@ -1,20 +1,27 @@
 # -*- coding: utf-8 -*-
 """
-回测报告管理器
+回测报告管理器 (数据库 + Redis 缓存)
 """
 
 import json
 import uuid
+import logging
 from datetime import datetime
 from dataclasses import dataclass, asdict
 from typing import Optional, List
-from pathlib import Path
+
+from data_source.db.connection import get_db_session
+from data_source.db.models import Report as DBReport
+from data_source.cache import get_cache
+from backtest.cache_keys import CacheKeys, CacheTTL
 from backtest.dca_backtest import BacktestResult
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
-class Report:
-    """回测报告"""
+class ReportData:
+    """回测报告数据"""
     id: str
     name: str
     created_at: str
@@ -29,7 +36,7 @@ class Report:
     trades: list
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'Report':
+    def from_dict(cls, data: dict) -> 'ReportData':
         return cls(**data)
 
     def to_dict(self) -> dict:
@@ -37,17 +44,15 @@ class Report:
 
 
 class ReportManager:
-    """报告管理器"""
+    """报告管理器 (DB + Redis)"""
 
-    def __init__(self, reports_dir: Optional[str] = None):
-        if reports_dir is None:
-            self.reports_dir: Path = Path(__file__).parent.parent / "reports"
-        else:
-            self.reports_dir = Path(reports_dir)
-        self.reports_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self):
+        self.cache = get_cache()
+        self._cache_ttl = CacheTTL.REPORT_LIST
 
-    def _get_report_path(self, report_id: str) -> Path:
-        return self.reports_dir / f"{report_id}.json"
+    def _invalidate_cache(self):
+        """清除缓存"""
+        self.cache.delete(CacheKeys.report_list())
 
     def generate_name(self, fund_name: str, fund_code: str, start_date: str,
                       end_date: str, strategy_params: dict) -> str:
@@ -93,18 +98,22 @@ class ReportManager:
                 'reason': row.get('reason', '')
             })
 
-        report_data = {
-            'id': report_id,
-            'name': name,
-            'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'fund_code': result.strategy_params.get('fund_code', ''),
-            'fund_name': result.strategy_params.get('fund_name', ''),
-            'start_date': result.strategy_params.get('start_date', ''),
-            'end_date': result.strategy_params.get('end_date', ''),
-            'investment_amount': float(result.total_invested / result.investment_count) if result.investment_count > 0 else 0,
-            'frequency': result.strategy_params.get('frequency', 'monthly'),
-            'strategy_params': result.strategy_params,
-            'result': {
+        strategy_params = result.strategy_params
+        start_date_str = strategy_params.get('start_date', '')
+        end_date_str = strategy_params.get('end_date', '')
+
+        report = ReportData(
+            id=report_id,
+            name=name,
+            created_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            fund_code=strategy_params.get('fund_code', ''),
+            fund_name=strategy_params.get('fund_name', ''),
+            start_date=start_date_str,
+            end_date=end_date_str,
+            investment_amount=float(result.total_invested / result.investment_count) if result.investment_count > 0 else 0,
+            frequency=strategy_params.get('frequency', 'monthly'),
+            strategy_params=strategy_params,
+            result={
                 'total_invested': float(result.total_invested),
                 'final_value': float(result.final_value),
                 'total_return': float(result.total_return),
@@ -115,57 +124,67 @@ class ReportManager:
                 'stop_loss_count': int(result.stop_loss_count),
                 'take_profit_count': int(result.take_profit_count)
             },
-            'trades': trades_list
-        }
+            trades=trades_list
+        )
 
-        report_path = self._get_report_path(report_id)
-        with open(report_path, 'w', encoding='utf-8') as f:
-            json.dump(report_data, f, ensure_ascii=False, indent=2)
+        with get_db_session() as session:
+            db_report = DBReport(
+                id=report.id,
+                name=report.name,
+                created_at=datetime.strptime(report.created_at, '%Y-%m-%d %H:%M:%S'),
+                fund_code=report.fund_code,
+                fund_name=report.fund_name,
+                start_date=datetime.strptime(report.start_date, '%Y-%m-%d').date() if report.start_date else None,
+                end_date=datetime.strptime(report.end_date, '%Y-%m-%d').date() if report.end_date else None,
+                investment_amount=report.investment_amount,
+                frequency=report.frequency,
+                strategy_params=json.dumps(report.strategy_params, ensure_ascii=False),
+                result=json.dumps(report.result, ensure_ascii=False),
+                trades=json.dumps(report.trades, ensure_ascii=False)
+            )
+            session.add(db_report)
 
+        self._invalidate_cache()
+        logger.info(f"报告已保存: {report_id}")
         return report_id
 
-    def load_report(self, report_id: str) -> Optional[Report]:
+    def load_report(self, report_id: str) -> Optional[ReportData]:
         """加载报告"""
-        report_path = self._get_report_path(report_id)
-        if not report_path.exists():
-            return None
+        with get_db_session() as session:
+            db_report = session.query(DBReport).filter(DBReport.id == report_id).first()
+            if db_report:
+                return ReportData.from_dict(db_report.to_dict())
+        return None
 
-        with open(report_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-
-        return Report.from_dict(data)
-
-    def list_reports(self, fund_code: Optional[str] = None, search: Optional[str] = None) -> List[Report]:
+    def list_reports(self, fund_code: Optional[str] = None, search: Optional[str] = None) -> List[ReportData]:
         """列出所有报告"""
-        reports = []
+        cache_key = CacheKeys.report_list()
+        cached = self.cache.get(cache_key)
+        if cached:
+            reports = [ReportData.from_dict(r) for r in cached]
+        else:
+            with get_db_session() as session:
+                query = session.query(DBReport).order_by(DBReport.created_at.desc())
+                reports = [ReportData.from_dict(r.to_dict()) for r in query.all()]
+            self.cache.set(cache_key, [r.to_dict() for r in reports], expire=self._cache_ttl)
 
-        for file_path in self.reports_dir.glob("*.json"):
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                report = Report.from_dict(data)
+        if fund_code:
+            reports = [r for r in reports if r.fund_code == fund_code]
+        if search:
+            reports = [r for r in reports if search.lower() in r.name.lower()]
 
-                if fund_code and report.fund_code != fund_code:
-                    continue
-                if search and search.lower() not in report.name.lower():
-                    continue
-
-                reports.append(report)
-            except Exception:
-                continue
-
-        reports.sort(key=lambda x: x.created_at, reverse=True)
         return reports
 
     def delete_report(self, report_id: str) -> bool:
         """删除报告"""
-        report_path = self._get_report_path(report_id)
-        if report_path.exists():
-            report_path.unlink()
-            return True
+        with get_db_session() as session:
+            db_report = session.query(DBReport).filter(DBReport.id == report_id).first()
+            if db_report:
+                session.delete(db_report)
+                self._invalidate_cache()
+                logger.info(f"报告已删除: {report_id}")
+                return True
         return False
-
-
 
     def get_report_summary(self) -> dict:
         """获取报告统计"""

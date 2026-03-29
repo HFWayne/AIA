@@ -3,10 +3,11 @@
 SQLAlchemy 数据模型
 """
 
+import json
 from datetime import datetime
 from sqlalchemy import (
     Column, Integer, BigInteger, String, Date, DateTime,
-    DECIMAL, Text, Index, UniqueConstraint
+    DECIMAL, Text, Index, UniqueConstraint, ForeignKey, Boolean
 )
 from sqlalchemy.ext.declarative import declarative_base
 
@@ -141,3 +142,123 @@ class SyncLog(Base):
         Index("idx_status", "status"),
         Index("idx_created_at", "created_at"),
     )
+
+
+class Report(Base):
+    """回测报告表"""
+    __tablename__ = "reports"
+
+    id = Column(String(8), primary_key=True, comment="报告ID")
+    name = Column(String(200), nullable=False, comment="报告名称")
+    created_at = Column(DateTime, nullable=False, comment="创建时间")
+    fund_code = Column(String(10), nullable=False, comment="基金代码")
+    fund_name = Column(String(100), comment="基金名称")
+    start_date = Column(Date, nullable=False, comment="开始日期")
+    end_date = Column(Date, nullable=False, comment="结束日期")
+    investment_amount = Column(DECIMAL(12, 2), comment="每次投入金额")
+    frequency = Column(String(20), comment="频率")
+    strategy_params = Column(Text, comment="策略参数JSON")
+    result = Column(Text, comment="回测结果JSON")
+    trades = Column(Text, comment="交易记录JSON")
+
+    __table_args__ = (
+        Index("idx_fund_code", "fund_code"),
+        Index("idx_created_at", "created_at"),
+    )
+
+    def to_dict(self):
+        data = {
+            "id": self.id,
+            "name": self.name,
+            "created_at": str(self.created_at) if self.created_at else None,
+            "fund_code": self.fund_code,
+            "fund_name": self.fund_name,
+            "start_date": str(self.start_date) if self.start_date else None,
+            "end_date": str(self.end_date) if self.end_date else None,
+            "investment_amount": float(self.investment_amount) if self.investment_amount else 0,
+            "frequency": self.frequency,
+        }
+        if self.strategy_params:
+            data["strategy_params"] = json.loads(self.strategy_params)
+        if self.result:
+            data["result"] = json.loads(self.result)
+        if self.trades:
+            data["trades"] = json.loads(self.trades)
+        return data
+
+
+class Watchlist(Base):
+    """自选股列表表"""
+    __tablename__ = "watchlists"
+
+    id = Column(String(8), primary_key=True, comment="列表ID")
+    name = Column(String(100), nullable=False, comment="列表名称")
+    description = Column(String(500), comment="描述")
+    created_at = Column(DateTime, nullable=False, comment="创建时间")
+    updated_at = Column(DateTime, nullable=False, comment="更新时间")
+
+    __table_args__ = (
+        Index("idx_created_at", "created_at"),
+    )
+
+
+class WatchlistStock(Base):
+    """自选股列表中的股票"""
+    __tablename__ = "watchlist_stocks"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    watchlist_id = Column(String(8), ForeignKey("watchlists.id", ondelete="CASCADE"), nullable=False)
+    code = Column(String(10), nullable=False, comment="股票代码")
+    name = Column(String(100), comment="股票名称")
+    market = Column(String(20), default="A股", comment="市场")
+    type = Column(String(20), default="ETF", comment="类型")
+    notes = Column(String(500), comment="备注")
+    tags = Column(Text, comment="标签JSON")
+
+    __table_args__ = (
+        UniqueConstraint("watchlist_id", "code", name="uk_watchlist_code"),
+        Index("idx_watchlist_id", "watchlist_id"),
+    )
+
+    def to_dict(self):
+        return {
+            "code": self.code,
+            "name": self.name,
+            "market": self.market,
+            "type": self.type,
+            "notes": self.notes,
+            "tags": json.loads(self.tags) if self.tags else [],
+        }
+
+
+class StrategyTemplateModel(Base):
+    """策略模板表"""
+    __tablename__ = "strategy_templates"
+
+    id = Column(String(8), primary_key=True, comment="策略ID")
+    name = Column(String(100), nullable=False, comment="策略名称")
+    group_name = Column(String(50), nullable=False, comment="分组")
+    description = Column(String(500), comment="描述")
+    params = Column(Text, comment="策略参数JSON")
+    color = Column(String(20), default="#1f77b4", comment="颜色")
+    is_default = Column(Boolean, default=False, comment="是否默认")
+    created_at = Column(DateTime, nullable=False, comment="创建时间")
+    updated_at = Column(DateTime, nullable=False, comment="更新时间")
+
+    __table_args__ = (
+        Index("idx_group_name", "group_name"),
+        Index("idx_is_default", "is_default"),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "group": self.group_name,
+            "description": self.description,
+            "params": json.loads(self.params) if self.params else {},
+            "color": self.color,
+            "is_default": self.is_default,
+            "created_at": str(self.created_at) if self.created_at else None,
+            "updated_at": str(self.updated_at) if self.updated_at else None,
+        }

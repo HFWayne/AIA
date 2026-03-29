@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS stocks (
     list_date DATE COMMENT '上市日期',
     delist_date DATE COMMENT '退市日期',
     stock_type VARCHAR(20) COMMENT '类型: ETF/股票/基金',
-    full_code VARCHAR(20) COMMENT '完整代码',
+    full_code VARCHAR(20) COMMENT '完整代码如 600036.SH',
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='股票基本信息';
 
@@ -92,6 +92,66 @@ CREATE TABLE IF NOT EXISTS sync_log (
     INDEX idx_status (status),
     INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='数据同步记录';
+
+-- ==================== 回测相关表 ====================
+
+-- 回测报告表
+CREATE TABLE IF NOT EXISTS reports (
+    id VARCHAR(8) PRIMARY KEY COMMENT '报告ID',
+    name VARCHAR(200) NOT NULL COMMENT '报告名称',
+    created_at DATETIME NOT NULL COMMENT '创建时间',
+    fund_code VARCHAR(10) NOT NULL COMMENT '基金代码',
+    fund_name VARCHAR(100) COMMENT '基金名称',
+    start_date DATE NOT NULL COMMENT '开始日期',
+    end_date DATE NOT NULL COMMENT '结束日期',
+    investment_amount DECIMAL(12,2) COMMENT '每次投入金额',
+    frequency VARCHAR(20) COMMENT '频率',
+    strategy_params TEXT COMMENT '策略参数JSON',
+    result TEXT COMMENT '回测结果JSON',
+    trades TEXT COMMENT '交易记录JSON',
+    INDEX idx_fund_code (fund_code),
+    INDEX idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='回测报告';
+
+-- 自选股列表表
+CREATE TABLE IF NOT EXISTS watchlists (
+    id VARCHAR(8) PRIMARY KEY COMMENT '列表ID',
+    name VARCHAR(100) NOT NULL COMMENT '列表名称',
+    description VARCHAR(500) COMMENT '描述',
+    created_at DATETIME NOT NULL COMMENT '创建时间',
+    updated_at DATETIME NOT NULL COMMENT '更新时间',
+    INDEX idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='自选股列表';
+
+-- 自选股列表中的股票
+CREATE TABLE IF NOT EXISTS watchlist_stocks (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    watchlist_id VARCHAR(8) NOT NULL COMMENT '列表ID',
+    code VARCHAR(10) NOT NULL COMMENT '股票代码',
+    name VARCHAR(100) COMMENT '股票名称',
+    market VARCHAR(20) DEFAULT 'A股' COMMENT '市场',
+    type VARCHAR(20) DEFAULT 'ETF' COMMENT '类型',
+    notes VARCHAR(500) COMMENT '备注',
+    tags TEXT COMMENT '标签JSON',
+    UNIQUE KEY uk_watchlist_code (watchlist_id, code),
+    INDEX idx_watchlist_id (watchlist_id),
+    FOREIGN KEY (watchlist_id) REFERENCES watchlists(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='自选股列表中的股票';
+
+-- 策略模板表
+CREATE TABLE IF NOT EXISTS strategy_templates (
+    id VARCHAR(8) PRIMARY KEY COMMENT '策略ID',
+    name VARCHAR(100) NOT NULL COMMENT '策略名称',
+    group_name VARCHAR(50) NOT NULL COMMENT '分组',
+    description VARCHAR(500) COMMENT '描述',
+    params TEXT COMMENT '策略参数JSON',
+    color VARCHAR(20) DEFAULT '#1f77b4' COMMENT '颜色',
+    is_default BOOLEAN DEFAULT FALSE COMMENT '是否默认',
+    created_at DATETIME NOT NULL COMMENT '创建时间',
+    updated_at DATETIME NOT NULL COMMENT '更新时间',
+    INDEX idx_group_name (group_name),
+    INDEX idx_is_default (is_default)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='策略模板';
 
 -- 创建存储过程：清理旧数据（保留最近N年）
 DELIMITER //

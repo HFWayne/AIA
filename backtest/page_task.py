@@ -344,7 +344,7 @@ def render_task_manager():
     with col_btn2:
         pass
 
-    if st.button("▶️ 开始回测", type="primary", use_container_width=True):
+    if st.button("▶️ 开始回测", type="primary", width='stretch'):
         if not task_name:
             task_name = f"回测_{datetime.now().strftime('%m%d_%H%M')}"
 

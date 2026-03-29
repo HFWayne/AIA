@@ -3,11 +3,6 @@
 股票定投回测 Web 应用 (Streamlit)
 """
 
-import sys
-import io
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
-
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -302,7 +297,7 @@ def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, 
             st.info(f"当前选择: **{fund_name}** ({fund_code})")
             
             st.markdown("### ")
-            run_btn = st.button("🚀 开始回测", type="primary", use_container_width=True)
+            run_btn = st.button("🚀 开始回测", type="primary", width='stretch')
     
     with col2:
         if run_btn:
@@ -371,7 +366,7 @@ def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, 
             
             render_metrics(current_result)
             
-            if st.button("💾 保存报告", key="save_report_btn", use_container_width=True):
+            if st.button("💾 保存报告", key="save_report_btn", width='stretch'):
                 rm = get_report_manager()
                 report_id = rm.save_report(current_result)
                 st.session_state['last_save_id'] = report_id
@@ -439,7 +434,7 @@ def page_compare(sd2, ed2, amt2, esl, slr, etp, tpr, mdt, tpsr, ds):
         
         amount2 = st.number_input("每次定投金额(元)", min_value=100, value=1000, step=100, key="amt2")
         
-        compare_btn = st.button("🔍 开始对比", type="primary", use_container_width=True)
+        compare_btn = st.button("🔍 开始对比", type="primary", width='stretch')
     
     with col_right:
         if compare_btn:

@@ -12,7 +12,7 @@ from typing import Optional, List, Dict
 
 import pandas as pd
 import baostock as bs
-import ak
+import akshare as ak
 
 from data_source.config import REQUEST_DELAY
 from data_source.db.connection import get_db_session, get_engine
@@ -107,28 +107,25 @@ class FreeDataSync:
             self._apply_delay()
             df = ak.stock_zh_a_hist(
                 symbol=code,
-                period='daily',
                 start_date=start_date,
                 end_date=end_date,
                 adjust='hfq'
             )
             if df is not None and not df.empty:
                 df = df.rename(columns={
-                    '日期': 'date',
-                    '股票代码': 'code',
-                    '开盘': 'open',
-                    '收盘': 'close',
-                    '最高': 'high',
-                    '最低': 'low',
-                    '成交量': 'volume',
-                    '成交额': 'amount',
-                    '振幅': 'amplitude',
-                    '涨跌幅': 'pct_chg',
-                    '涨跌额': 'change',
-                    '换手率': 'turn'
+                    'date': 'date',
+                    'code': 'code',
+                    'open': 'open',
+                    'close': 'close',
+                    'high': 'high',
+                    'low': 'low',
+                    'volume': 'volume',
+                    'amount': 'amount',
+                    'turnover': 'turn',
+                    'pct_chg': 'pct_chg'
                 })
                 df['date'] = pd.to_datetime(df['date']).dt.date
-                df['pct_chg'] = df['pct_chg'] / 100
+                df['pct_chg'] = df['pct_chg'] / 100 if 'pct_chg' in df.columns else 0
                 return df[['code', 'date', 'open', 'high', 'low', 'close', 'volume', 'amount', 'pct_chg', 'turn']]
         except Exception as e:
             logger.warning(f"akshare 获取 {code} 日线失败: {e}")

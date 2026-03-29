@@ -77,7 +77,7 @@ def render_watchlist_tab(wm: WatchlistManager, watchlist: Watchlist):
                     "备注": stock.notes or "-"
                 })
             
-            st.dataframe(data, width='stretch', hide_index=True, use_container_width=True)
+            st.dataframe(data, hide_index=True, width='stretch')
             
             col_del_all, col_count = st.columns([1, 4])
             with col_del_all:
@@ -355,7 +355,7 @@ def render_create_watchlist(wm: WatchlistManager, existing_lists):
     if preset_name != "不添加":
         st.info(f"将添加 {len(preset_options[preset_name])} 只预设股票")
 
-    if st.button("创建", type="primary", use_container_width=True):
+    if st.button("创建", type="primary", width='stretch'):
         if new_name:
             if any(wl.name == new_name for wl in existing_lists):
                 st.error("列表名称已存在")

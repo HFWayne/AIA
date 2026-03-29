@@ -1,15 +1,21 @@
 # -*- coding: utf-8 -*-
 """
-策略模板管理器
-管理回测策略模板
+策略模板管理器 (数据库 + Redis 缓存)
 """
 
 import json
 import uuid
+import logging
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
-from typing import Optional, List, Dict, Tuple
-from pathlib import Path
+from typing import Optional, List, Dict
+
+from data_source.db.connection import get_db_session
+from data_source.db.models import StrategyTemplateModel
+from data_source.cache import get_cache
+from backtest.cache_keys import CacheKeys, CacheTTL
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -104,264 +110,284 @@ class StrategyTemplate:
 
 
 class StrategyManager:
-    """策略管理器"""
+    """策略管理器 (DB + Redis)"""
 
     GROUPS = ["我的策略", "保守型", "激进型", "增强型"]
 
-    def __init__(self, data_dir: Optional[str] = None):
-        if data_dir is None:
-            self.data_dir: Path = Path(__file__).parent.parent.parent / "reports"
-        else:
-            self.data_dir = Path(data_dir)
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.file_path = self.data_dir / "strategies.json"
+    def __init__(self):
+        self.cache = get_cache()
+        self._cache_ttl = CacheTTL.STRATEGY_LIST
         self._init_default_strategies()
+
+    def _invalidate_cache(self):
+        """清除缓存"""
+        self.cache.delete(CacheKeys.strategy_list())
 
     def _init_default_strategies(self):
         """初始化默认策略模板"""
-        if not self.file_path.exists():
-            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            default_strategies = [
-                StrategyTemplate(
-                    id="basic",
-                    name="基础定投",
-                    group="保守型",
-                    description="最基础的定投策略，无风控",
-                    params=StrategyParams(
-                        frequency="monthly",
-                        day_of_month=1,
-                        investment_amount=500.0,
-                        enable_stop_loss=False,
-                        enable_take_profit=False,
-                        enable_dip_buy=False,
-                        enable_yield_boost=False
-                    ),
-                    color="#2ecc71",
-                    is_default=True,
-                    created_at=now,
-                    updated_at=now
-                ),
-                StrategyTemplate(
-                    id="steady",
-                    name="稳健定投",
-                    group="保守型",
-                    description="带止损止盈的稳健策略",
-                    params=StrategyParams(
-                        frequency="monthly",
-                        day_of_month=1,
-                        investment_amount=500.0,
-                        enable_stop_loss=True,
-                        stop_loss_rate=0.10,
-                        stop_loss_sell_ratio=1.0,
-                        enable_take_profit=True,
-                        take_profit_rate=0.20,
-                        max_drawdown_threshold=0.10,
-                        take_profit_sell_ratio=0.5,
-                        enable_dip_buy=False,
-                        enable_yield_boost=False
-                    ),
-                    color="#3498db",
-                    is_default=True,
-                    created_at=now,
-                    updated_at=now
-                ),
-                StrategyTemplate(
-                    id="conservative",
-                    name="保守定投",
-                    group="保守型",
-                    description="周定投+补仓的保守策略",
-                    params=StrategyParams(
-                        frequency="weekly",
-                        day_of_week=0,
-                        investment_amount=200.0,
-                        enable_stop_loss=True,
-                        stop_loss_rate=0.15,
-                        stop_loss_sell_ratio=1.0,
-                        enable_take_profit=True,
-                        take_profit_rate=0.30,
-                        max_drawdown_threshold=0.15,
-                        take_profit_sell_ratio=0.5,
-                        enable_dip_buy=True,
-                        dip_buy_tier1_threshold=-0.05,
-                        dip_buy_tier1_amount=400.0,
-                        enable_yield_boost=False
-                    ),
-                    color="#9b59b6",
-                    is_default=True,
-                    created_at=now,
-                    updated_at=now
-                ),
-                StrategyTemplate(
-                    id="aggressive",
-                    name="积极定投",
-                    group="激进型",
-                    description="大额月定投+严格止损止盈",
-                    params=StrategyParams(
-                        frequency="monthly",
-                        day_of_month=1,
-                        investment_amount=1000.0,
-                        enable_stop_loss=True,
-                        stop_loss_rate=0.08,
-                        stop_loss_sell_ratio=1.0,
-                        enable_take_profit=True,
-                        take_profit_rate=0.15,
-                        max_drawdown_threshold=0.08,
-                        take_profit_sell_ratio=0.5,
-                        enable_dip_buy=True,
-                        dip_buy_tier1_threshold=-0.03,
-                        dip_buy_tier1_amount=2000.0,
-                        dip_buy_tier2_threshold=-0.07,
-                        dip_buy_tier2_amount=3000.0,
-                        enable_yield_boost=False
-                    ),
-                    color="#e74c3c",
-                    is_default=True,
-                    created_at=now,
-                    updated_at=now
-                ),
-                StrategyTemplate(
-                    id="high_risk",
-                    name="高风险定投",
-                    group="激进型",
-                    description="周定投+强化补仓",
-                    params=StrategyParams(
-                        frequency="weekly",
-                        day_of_week=0,
-                        investment_amount=500.0,
-                        enable_stop_loss=True,
-                        stop_loss_rate=0.05,
-                        stop_loss_sell_ratio=1.0,
-                        enable_take_profit=True,
-                        take_profit_rate=0.10,
-                        max_drawdown_threshold=0.05,
-                        take_profit_sell_ratio=0.5,
-                        enable_dip_buy=True,
-                        dip_buy_tier1_threshold=-0.03,
-                        dip_buy_tier1_amount=1000.0,
-                        dip_buy_tier2_threshold=-0.05,
-                        dip_buy_tier2_amount=1500.0,
-                        dip_buy_tier3_threshold=-0.07,
-                        dip_buy_tier3_amount=2000.0,
-                        enable_yield_boost=False
-                    ),
-                    color="#f39c12",
-                    is_default=True,
-                    created_at=now,
-                    updated_at=now
-                ),
-                StrategyTemplate(
-                    id="boost",
-                    name="收益增强",
-                    group="增强型",
-                    description="月定投+收益增强策略",
-                    params=StrategyParams(
-                        frequency="monthly",
-                        day_of_month=1,
-                        investment_amount=500.0,
-                        enable_stop_loss=True,
-                        stop_loss_rate=0.10,
-                        stop_loss_sell_ratio=1.0,
-                        enable_take_profit=False,
-                        enable_dip_buy=False,
-                        enable_yield_boost=True,
-                        yield_boost_trigger=-0.20,
-                        yield_boost_recover=-0.10,
-                        yield_boost_amount=500.0
-                    ),
-                    color="#1abc9c",
-                    is_default=True,
-                    created_at=now,
-                    updated_at=now
-                ),
-            ]
-            self._save_all(default_strategies)
+        with get_db_session() as session:
+            count = session.query(StrategyTemplateModel).count()
+            if count == 0:
+                now = datetime.now()
+                default_strategies = [
+                    {
+                        "id": "st_basic",
+                        "name": "基础定投",
+                        "group": "保守型",
+                        "description": "最基础的定投策略，无风控",
+                        "params": {
+                            "frequency": "monthly",
+                            "day_of_month": 1,
+                            "investment_amount": 500.0,
+                            "enable_stop_loss": False,
+                            "enable_take_profit": False,
+                            "enable_dip_buy": False,
+                            "enable_yield_boost": False
+                        },
+                        "color": "#2ecc71",
+                        "is_default": True
+                    },
+                    {
+                        "id": "st_wj",
+                        "name": "稳健定投",
+                        "group": "保守型",
+                        "description": "带止损止盈的稳健策略",
+                        "params": {
+                            "frequency": "monthly",
+                            "day_of_month": 1,
+                            "investment_amount": 500.0,
+                            "enable_stop_loss": True,
+                            "stop_loss_rate": 0.10,
+                            "stop_loss_sell_ratio": 1.0,
+                            "enable_take_profit": True,
+                            "take_profit_rate": 0.20,
+                            "max_drawdown_threshold": 0.10,
+                            "take_profit_sell_ratio": 0.5,
+                            "enable_dip_buy": False,
+                            "enable_yield_boost": False
+                        },
+                        "color": "#3498db",
+                        "is_default": True
+                    },
+                    {
+                        "id": "st_consv",
+                        "name": "保守定投",
+                        "group": "保守型",
+                        "description": "周定投+补仓的保守策略",
+                        "params": {
+                            "frequency": "weekly",
+                            "day_of_week": 0,
+                            "investment_amount": 200.0,
+                            "enable_stop_loss": True,
+                            "stop_loss_rate": 0.15,
+                            "stop_loss_sell_ratio": 1.0,
+                            "enable_take_profit": True,
+                            "take_profit_rate": 0.30,
+                            "max_drawdown_threshold": 0.15,
+                            "take_profit_sell_ratio": 0.5,
+                            "enable_dip_buy": True,
+                            "dip_buy_tier1_threshold": -0.05,
+                            "dip_buy_tier1_amount": 400.0,
+                            "enable_yield_boost": False
+                        },
+                        "color": "#9b59b6",
+                        "is_default": True
+                    },
+                    {
+                        "id": "st_agg",
+                        "name": "积极定投",
+                        "group": "激进型",
+                        "description": "大额月定投+严格止损止盈",
+                        "params": {
+                            "frequency": "monthly",
+                            "day_of_month": 1,
+                            "investment_amount": 1000.0,
+                            "enable_stop_loss": True,
+                            "stop_loss_rate": 0.08,
+                            "stop_loss_sell_ratio": 1.0,
+                            "enable_take_profit": True,
+                            "take_profit_rate": 0.15,
+                            "max_drawdown_threshold": 0.08,
+                            "take_profit_sell_ratio": 0.5,
+                            "enable_dip_buy": True,
+                            "dip_buy_tier1_threshold": -0.03,
+                            "dip_buy_tier1_amount": 2000.0,
+                            "dip_buy_tier2_threshold": -0.07,
+                            "dip_buy_tier2_amount": 3000.0,
+                            "enable_yield_boost": False
+                        },
+                        "color": "#e74c3c",
+                        "is_default": True
+                    },
+                    {
+                        "id": "st_hr",
+                        "name": "高风险定投",
+                        "group": "激进型",
+                        "description": "周定投+强化补仓",
+                        "params": {
+                            "frequency": "weekly",
+                            "day_of_week": 0,
+                            "investment_amount": 500.0,
+                            "enable_stop_loss": True,
+                            "stop_loss_rate": 0.05,
+                            "stop_loss_sell_ratio": 1.0,
+                            "enable_take_profit": True,
+                            "take_profit_rate": 0.10,
+                            "max_drawdown_threshold": 0.05,
+                            "take_profit_sell_ratio": 0.5,
+                            "enable_dip_buy": True,
+                            "dip_buy_tier1_threshold": -0.03,
+                            "dip_buy_tier1_amount": 1000.0,
+                            "dip_buy_tier2_threshold": -0.05,
+                            "dip_buy_tier2_amount": 1500.0,
+                            "dip_buy_tier3_threshold": -0.07,
+                            "dip_buy_tier3_amount": 2000.0,
+                            "enable_yield_boost": False
+                        },
+                        "color": "#f39c12",
+                        "is_default": True
+                    },
+                    {
+                        "id": "st_boost",
+                        "name": "收益增强",
+                        "group": "增强型",
+                        "description": "月定投+收益增强策略",
+                        "params": {
+                            "frequency": "monthly",
+                            "day_of_month": 1,
+                            "investment_amount": 500.0,
+                            "enable_stop_loss": True,
+                            "stop_loss_rate": 0.10,
+                            "stop_loss_sell_ratio": 1.0,
+                            "enable_take_profit": False,
+                            "enable_dip_buy": False,
+                            "enable_yield_boost": True,
+                            "yield_boost_trigger": -0.20,
+                            "yield_boost_recover": -0.10,
+                            "yield_boost_amount": 500.0
+                        },
+                        "color": "#1abc9c",
+                        "is_default": True
+                    },
+                ]
 
-    def _load_all(self) -> List[StrategyTemplate]:
-        """加载所有策略模板"""
-        if not self.file_path.exists():
-            return []
-        try:
-            with open(self.file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            return [StrategyTemplate.from_dict(item) for item in data]
-        except (json.JSONDecodeError, KeyError):
-            return []
+                for s in default_strategies:
+                    strategy = StrategyTemplateModel(
+                        id=s['id'],
+                        name=s['name'],
+                        group_name=s['group'],
+                        description=s['description'],
+                        params=json.dumps(s['params'], ensure_ascii=False),
+                        color=s['color'],
+                        is_default=s['is_default'],
+                        created_at=now,
+                        updated_at=now
+                    )
+                    session.add(strategy)
 
-    def _save_all(self, strategies: List[StrategyTemplate]):
-        """保存所有策略模板"""
-        with open(self.file_path, 'w', encoding='utf-8') as f:
-            json.dump([s.to_dict() for s in strategies], f, ensure_ascii=False, indent=2)
+                logger.info("默认策略模板初始化完成")
 
     def list_strategies(self, group: Optional[str] = None) -> List[StrategyTemplate]:
         """获取策略模板列表"""
-        strategies = self._load_all()
+        cache_key = CacheKeys.strategy_list()
+        cached = self.cache.get(cache_key)
+        if cached:
+            strategies = [StrategyTemplate.from_dict(s) for s in cached]
+        else:
+            with get_db_session() as session:
+                query = session.query(StrategyTemplateModel)
+                db_strategies = query.all()
+                strategies = [StrategyTemplate.from_dict(s.to_dict()) for s in db_strategies]
+            self.cache.set(cache_key, [s.to_dict() for s in strategies], expire=self._cache_ttl)
+
         if group:
             strategies = [s for s in strategies if s.group == group]
         return strategies
 
     def get_strategy(self, strategy_id: str) -> Optional[StrategyTemplate]:
         """获取指定策略模板"""
-        strategies = self._load_all()
-        for s in strategies:
-            if s.id == strategy_id:
-                return s
+        with get_db_session() as session:
+            db_strategy = session.query(StrategyTemplateModel).filter(
+                StrategyTemplateModel.id == strategy_id
+            ).first()
+            if db_strategy:
+                return StrategyTemplate.from_dict(db_strategy.to_dict())
         return None
 
     def create_strategy(self, name: str, group: str, description: str = "",
                        params: StrategyParams = None, color: str = "#1f77b4") -> StrategyTemplate:
         """创建新的策略模板"""
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        strategy = StrategyTemplate(
-            id=str(uuid.uuid4())[:8],
+        now = datetime.now()
+        strategy_id = str(uuid.uuid4())[:8]
+
+        with get_db_session() as session:
+            strategy = StrategyTemplateModel(
+                id=strategy_id,
+                name=name,
+                group_name=group,
+                description=description,
+                params=json.dumps((params or StrategyParams()).to_dict(), ensure_ascii=False),
+                color=color,
+                is_default=False,
+                created_at=now,
+                updated_at=now
+            )
+            session.add(strategy)
+
+        self._invalidate_cache()
+        return StrategyTemplate(
+            id=strategy_id,
             name=name,
             group=group,
             description=description,
             params=params or StrategyParams(),
             color=color,
             is_default=False,
-            created_at=now,
-            updated_at=now
+            created_at=now.strftime('%Y-%m-%d %H:%M:%S'),
+            updated_at=now.strftime('%Y-%m-%d %H:%M:%S')
         )
-        strategies = self._load_all()
-        strategies.append(strategy)
-        self._save_all(strategies)
-        return strategy
 
     def update_strategy(self, strategy_id: str, **kwargs) -> Optional[StrategyTemplate]:
         """更新策略模板"""
-        strategies = self._load_all()
-        for s in strategies:
-            if s.id == strategy_id:
+        with get_db_session() as session:
+            db_strategy = session.query(StrategyTemplateModel).filter(
+                StrategyTemplateModel.id == strategy_id
+            ).first()
+
+            if db_strategy:
                 if 'name' in kwargs:
-                    s.name = kwargs['name']
+                    db_strategy.name = kwargs['name']
                 if 'group' in kwargs:
-                    s.group = kwargs['group']
+                    db_strategy.group_name = kwargs['group']
                 if 'description' in kwargs:
-                    s.description = kwargs['description']
+                    db_strategy.description = kwargs['description']
                 if 'color' in kwargs:
-                    s.color = kwargs['color']
+                    db_strategy.color = kwargs['color']
                 if 'params' in kwargs:
                     if isinstance(kwargs['params'], dict):
-                        s.params = StrategyParams.from_dict(kwargs['params'])
+                        db_strategy.params = json.dumps(kwargs['params'], ensure_ascii=False)
                     else:
-                        s.params = kwargs['params']
-                s.updated_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                self._save_all(strategies)
-                return s
+                        db_strategy.params = json.dumps(kwargs['params'].to_dict(), ensure_ascii=False)
+                db_strategy.updated_at = datetime.now()
+
+                self._invalidate_cache()
+                return StrategyTemplate.from_dict(db_strategy.to_dict())
         return None
 
     def delete_strategy(self, strategy_id: str) -> bool:
         """删除策略模板"""
-        strategies = self._load_all()
-        original_len = len(strategies)
-        strategies = [s for s in strategies if s.id != strategy_id]
-        if len(strategies) < original_len:
-            self._save_all(strategies)
-            return True
+        with get_db_session() as session:
+            db_strategy = session.query(StrategyTemplateModel).filter(
+                StrategyTemplateModel.id == strategy_id
+            ).first()
+            if db_strategy:
+                session.delete(db_strategy)
+                self._invalidate_cache()
+                return True
         return False
 
     def get_groups(self) -> List[str]:
         """获取所有策略分组"""
-        strategies = self._load_all()
+        strategies = self.list_strategies()
         groups = set(s.group for s in strategies)
         return sorted(list(groups))

@@ -202,7 +202,7 @@ def render_strategy_editor(sm: StrategyManager, strategy: StrategyTemplate = Non
 
     col_save, col_cancel = st.columns(2)
     with col_save:
-        if st.button("💾 保存策略", type="primary", use_container_width=True):
+        if st.button("💾 保存策略", type="primary", width='stretch'):
             params = StrategyParams(
                 frequency=frequency,
                 day_of_month=day_of_month,
@@ -239,7 +239,7 @@ def render_strategy_editor(sm: StrategyManager, strategy: StrategyTemplate = Non
             st.rerun()
 
     with col_cancel:
-        if st.button("取消", use_container_width=True):
+        if st.button("取消", width='stretch'):
             if strategy:
                 st.session_state[f'edit_strategy_{strategy.id}'] = False
             st.rerun()

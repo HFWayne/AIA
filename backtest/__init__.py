@@ -6,7 +6,7 @@ from backtest.dca_backtest import DCABacktest, DCAParams, BacktestResult
 from backtest.visualization import BacktestVisualizer
 from backtest.watchlist_manager import WatchlistManager, Watchlist, StockInfo
 from backtest.strategy_manager import StrategyManager, StrategyTemplate, StrategyParams
-from backtest.report_manager import ReportManager, Report
+from backtest.report_manager import ReportManager, ReportData
 
 
 @dataclass
@@ -54,7 +54,6 @@ class FundBacktester:
         self.ds = FundDataSource(preferred_source=self.data_source)
         self.backtest = DCABacktest(self.ds)
         self.visualizer = BacktestVisualizer()
-        print(f"使用数据源: {self.data_source}")
     
     def single_fund(self, config: BacktestConfig) -> Optional[BacktestResult]:
         """单个股票回测"""

@@ -5,9 +5,11 @@
 这是一个 Python 股票/基金数据分析和 DCA（定期定额投资）回测项目，提供：
 - 统一数据源接口，支持 tushare、akshare、baostock
 - 带可视化功能的 DCA 回测引擎
-- 支持止损止盈策略
+- 支持止损止盈、定投加大、收益增强策略
 - Web UI 界面 (Streamlit)
-- 报告管理（保存、加载、对比）
+- MySQL 数据库 + Redis 缓存持久化
+- 自选股管理、策略管理、报告管理
+- 自动化测试框架
 
 ## 构建/测试/运行命令
 
@@ -27,8 +29,11 @@ pytest tests/test_dca_backtest.py -v
 # 运行单个测试
 pytest tests/test_dca_backtest.py::TestDCABacktest::test_simple_dca_basic -v
 
+# 生成 HTML 测试报告
+pytest tests/ --html=tests/report.html --self-contained-html
+
 # 带覆盖率运行
-pytest --cov=. --cov-report=html
+pytest tests/ --cov=. --cov-report=html
 ```
 
 ### 代码质量
@@ -42,6 +47,65 @@ black .
 # isort 排序导入
 isort .
 ```
+
+## 项目架构
+
+### 文件结构
+```
+project/
+├── app.py                    # Streamlit Web UI (唯一入口)
+├── data_source/              # 数据源接口
+│   ├── config.py             # 配置 (数据库、Redis、数据源)
+│   ├── fund_data_source.py   # 统一数据源
+│   ├── db/
+│   │   ├── models.py         # SQLAlchemy 模型
+│   │   ├── connection.py     # 数据库连接
+│   │   └── migrations/       # SQL 迁移脚本
+│   └── cache/
+│       └── redis_client.py   # Redis 客户端
+├── backtest/                 # 回测逻辑
+│   ├── dca_backtest.py       # DCA 回测引擎
+│   ├── visualization.py      # 可视化
+│   ├── report_manager.py     # 报告管理器 (DB + Redis)
+│   ├── watchlist_manager.py  # 自选股管理器
+│   ├── strategy_manager.py   # 策略管理器
+│   ├── cache_keys.py         # 缓存 key 定义
+│   └── __init__.py
+├── tasks/                    # 任务相关
+│   └── task_manager.py       # 任务管理器
+├── tests/                   # 测试
+│   ├── conftest.py          # 共享 fixtures
+│   ├── test_dca_backtest.py # DCA 回测测试
+│   ├── ui/
+│   │   ├── conftest.py      # UI 测试辅助类和 fixtures
+│   │   ├── test_managers.py # Manager 集成测试
+│   │   └── test_integration.py # 端到端测试
+│   └── report.html          # HTML 测试报告
+└── reports/                 # 保存的报告
+```
+
+### 数据库表
+| 表名 | 说明 |
+|------|------|
+| `reports` | 回测报告 |
+| `watchlists` | 自选股列表 |
+| `watchlist_stocks` | 自选股关联 |
+| `strategy_templates` | 策略模板 |
+| `stocks` | 股票基础信息 |
+| `daily_kline` | 日线数据 |
+| `backtest_tasks` | 回测任务 |
+
+### 核心类
+
+| 类 | 模块 | 说明 |
+|---|------|------|
+| `ReportManager` | backtest/report_manager.py | 报告管理 (DB + Redis) |
+| `WatchlistManager` | backtest/watchlist_manager.py | 自选股管理 |
+| `StrategyManager` | backtest/strategy_manager.py | 策略管理 |
+| `TaskManager` | tasks/task_manager.py | 任务管理 |
+| `FundDataSource` | data_source/fund_data_source.py | 数据源 |
+| `DCABacktest` | backtest/dca_backtest.py | DCA 回测引擎 |
+| `FundBacktester` | backtest/__init__.py | 回测包装器 |
 
 ## 代码风格指南
 
@@ -74,26 +138,6 @@ from backtest.dca_backtest import DCABacktest
 - **类**：PascalCase（如 `FundDataSource`、`DCABacktest`）
 - **常量**：UPPER_SNAKE_CASE（如 `DATA_SOURCE`、`TU_SHARE_TOKEN`）
 - **私有方法**：以下划线开头（如 `_get_fund_from_tushare`）
-
-### 类型注解
-```python
-def get_fund_nav(
-    fund_code: str,
-    start_date: str,
-    end_date: str
-) -> Optional[pd.DataFrame]:
-    """获取基金净值数据。
-    
-    参数:
-        fund_code: 基金代码（如 "510300"）
-        start_date: 开始日期，YYYYMMDD 格式
-        end_date: 结束日期，YYYYMMDD 格式
-        
-    返回:
-        包含 date, nav, accum_nav 列的 DataFrame，失败返回 None
-    """
-    pass
-```
 
 ### 异常处理
 ```python
@@ -140,12 +184,8 @@ df = (
     .sort_values('date')
 )
 
-# 谨慎使用 inplace
-df.dropna(inplace=True)  # 大数据集可以
-
 # 避免链式索引
 df.loc[df['col'] > 0, 'result'] = 1  # 正确
-# df['result'][df['col'] > 0] = 1    # 错误
 ```
 
 ### 可视化
@@ -166,25 +206,6 @@ plt.savefig('chart.png', dpi=150, bbox_inches='tight')
 - 所有配置放在 `data_source/config.py`
 - 使用环境变量或配置文件存储密钥
 - 永远不要在源代码中硬编码 API 令牌
-
-### 文件结构
-```
-project/
-├── app.py                    # Streamlit Web UI (唯一入口)
-├── data_source/              # 数据源接口
-│   ├── config.py            # 配置
-│   └── fund_data_source.py
-├── backtest/                # 回测逻辑
-│   ├── dca_backtest.py
-│   ├── visualization.py
-│   ├── report_manager.py     # 报告管理器
-│   └── __init__.py
-├── reports/                  # 保存的报告 (JSON)
-└── tests/                   # 单元测试
-    ├── conftest.py          # pytest fixtures
-    ├── test_dca_backtest.py
-    └── test_report_manager.py
-```
 
 ## Git 工作流
 - 提交信息：使用conventional格式（feat:、fix:、refactor:等）
@@ -210,30 +231,20 @@ def get_data(self, fund_code: str) -> Optional[pd.DataFrame]:
     return None  # 所有数据源都失败
 ```
 
-### 类定义
+### 缓存使用
 ```python
-from dataclasses import dataclass
-from typing import Optional
+from backtest.cache_keys import CacheKeys, CacheTTL
 
-@dataclass
-class BacktestResult:
-    """回测结果"""
-    total_invested: float      # 总投入
-    final_value: float         # 最终价值
-    total_return: float        # 总收益
-    return_rate: float         # 收益率
-    annual_return: float       # 年化收益
-    max_drawdown: float        # 最大回撤
-    investment_count: int      # 投资次数
-    nav_data: pd.DataFrame    # 净值数据
-    trades: pd.DataFrame      # 交易记录
-    stop_loss_count: int       # 止损次数
-    take_profit_count: int     # 止盈次数
+# 设置缓存
+cache.set(CacheKeys.report(report_id), data, ttl=CacheTTL.REPORT)
+
+# 获取缓存
+data = cache.get(CacheKeys.report(report_id))
 ```
 
 ### 报告保存
 ```python
-from report_manager import ReportManager
+from backtest.report_manager import ReportManager, ReportData
 
 rm = ReportManager()
 report_id = rm.save_report(backtest_result)
@@ -242,13 +253,32 @@ report_id = rm.save_report(backtest_result)
 # 招商银行_600036_2022-01-01-2024-12-31_止盈20%止损15%
 ```
 
+## 测试框架
+
+### 测试分类
+- **单元测试**：DCA 回测核心逻辑 (`tests/test_dca_backtest.py`)
+- **Manager 测试**：各管理器的 CRUD 操作 (`tests/ui/test_managers.py`)
+- **集成测试**：端到端工作流 (`tests/ui/test_integration.py`)
+
+### Fixtures
+| Fixture | 说明 |
+|---------|------|
+| `clean_database` | 每个测试前清理数据库 |
+| `clean_cache` | 每个测试前清空缓存 |
+| `verify_db` | 验证数据库配置 |
+| `mock_tushare` | Mock Tushare API |
+| `mock_akshare` | Mock AkShare |
+
 ## 运行单个测试
 ```bash
 # 使用 pytest
 pytest tests/test_dca_backtest.py::TestDCABacktest::test_simple_dca_basic -v
 
-# 使用 unittest
-python -m unittest tests.test_backtest.TestDCABacktest.test_simple_dca_basic
+# 运行管理器测试
+pytest tests/ui/test_managers.py -v
+
+# 运行集成测试
+pytest tests/ui/test_integration.py -v
 ```
 
 ## VS Code / IDE 推荐设置

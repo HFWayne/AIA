@@ -1,15 +1,21 @@
 # -*- coding: utf-8 -*-
 """
-自选股管理器
-管理用户的自选股列表
+自选股管理器 (数据库 + Redis 缓存)
 """
 
 import json
 import uuid
+import logging
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from typing import Optional, List, Dict
-from pathlib import Path
+
+from data_source.db.connection import get_db_session
+from data_source.db.models import Watchlist as DBWatchlist, WatchlistStock as DBWatchlistStock
+from data_source.cache import get_cache
+from backtest.cache_keys import CacheKeys, CacheTTL
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -64,174 +70,241 @@ class Watchlist:
 
 
 class WatchlistManager:
-    """自选股管理器"""
+    """自选股管理器 (DB + Redis)"""
 
-    def __init__(self, data_dir: Optional[str] = None):
-        if data_dir is None:
-            self.data_dir: Path = Path(__file__).parent.parent.parent / "reports"
-        else:
-            self.data_dir = Path(data_dir)
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.file_path = self.data_dir / "watchlists.json"
+    def __init__(self):
+        self.cache = get_cache()
+        self._cache_ttl = CacheTTL.WATCHLIST_LIST
         self._init_default_watchlists()
+
+    def _invalidate_cache(self):
+        """清除缓存"""
+        self.cache.delete(CacheKeys.watchlist_list())
 
     def _init_default_watchlists(self):
         """初始化默认自选股列表"""
-        if not self.file_path.exists():
-            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            default_lists = [
-                Watchlist(
-                    id="default_etf",
-                    name="宽基ETF",
-                    description="主要宽基指数ETF",
-                    stocks=[
-                        StockInfo(code="510300", name="沪深300", market="A股", type="ETF", tags=["宽基", "大盘"]),
-                        StockInfo(code="510500", name="中证500", market="A股", type="ETF", tags=["宽基", "中盘"]),
-                        StockInfo(code="159915", name="创业板ETF", market="A股", type="ETF", tags=["宽基", "成长"]),
-                        StockInfo(code="510050", name="上证50", market="A股", type="ETF", tags=["宽基", "大盘"]),
-                        StockInfo(code="510880", name="红利ETF", market="A股", type="ETF", tags=["宽基", "高股息"]),
-                    ],
-                    created_at=now,
-                    updated_at=now
-                ),
-                Watchlist(
-                    id="default_industry",
-                    name="行业ETF",
-                    description="热门行业ETF",
-                    stocks=[
-                        StockInfo(code="512880", name="证券ETF", market="A股", type="ETF", tags=["金融", "证券"]),
-                        StockInfo(code="512760", name="芯片ETF", market="A股", type="ETF", tags=["科技", "芯片"]),
-                        StockInfo(code="512660", name="军工ETF", market="A股", type="ETF", tags=["军工"]),
-                        StockInfo(code="512010", name="医药ETF", market="A股", type="ETF", tags=["医药"]),
-                        StockInfo(code="515050", name="5GETF", market="A股", type="ETF", tags=["科技", "5G"]),
-                    ],
-                    created_at=now,
-                    updated_at=now
-                ),
-                Watchlist(
-                    id="default_dividend",
-                    name="红利基金",
-                    description="高股息ETF",
-                    stocks=[
-                        StockInfo(code="510880", name="红利ETF", market="A股", type="ETF", tags=["高股息", "红利"]),
-                        StockInfo(code="512890", name="红利低波ETF", market="A股", type="ETF", tags=["高股息", "低波动"]),
-                        StockInfo(code="515100", name="红利增强ETF", market="A股", type="ETF", tags=["高股息", "增强"]),
-                    ],
-                    created_at=now,
-                    updated_at=now
-                ),
-            ]
-            self._save_all(default_lists)
+        with get_db_session() as session:
+            count = session.query(DBWatchlist).count()
+            if count == 0:
+                now = datetime.now()
+                default_lists = [
+                    {
+                        "id": "wl_etf",
+                        "name": "宽基ETF",
+                        "description": "主要宽基指数ETF",
+                        "stocks": [
+                            {"code": "510300", "name": "沪深300", "market": "A股", "type": "ETF", "tags": ["宽基", "大盘"]},
+                            {"code": "510500", "name": "中证500", "market": "A股", "type": "ETF", "tags": ["宽基", "中盘"]},
+                            {"code": "159915", "name": "创业板ETF", "market": "A股", "type": "ETF", "tags": ["宽基", "成长"]},
+                            {"code": "510050", "name": "上证50", "market": "A股", "type": "ETF", "tags": ["宽基", "大盘"]},
+                            {"code": "510880", "name": "红利ETF", "market": "A股", "type": "ETF", "tags": ["宽基", "高股息"]},
+                        ]
+                    },
+                    {
+                        "id": "wl_ind",
+                        "name": "行业ETF",
+                        "description": "热门行业ETF",
+                        "stocks": [
+                            {"code": "512880", "name": "证券ETF", "market": "A股", "type": "ETF", "tags": ["金融", "证券"]},
+                            {"code": "512760", "name": "芯片ETF", "market": "A股", "type": "ETF", "tags": ["科技", "芯片"]},
+                            {"code": "512660", "name": "军工ETF", "market": "A股", "type": "ETF", "tags": ["军工"]},
+                            {"code": "512010", "name": "医药ETF", "market": "A股", "type": "ETF", "tags": ["医药"]},
+                            {"code": "515050", "name": "5GETF", "market": "A股", "type": "ETF", "tags": ["科技", "5G"]},
+                        ]
+                    },
+                    {
+                        "id": "wl_div",
+                        "name": "红利基金",
+                        "description": "高股息ETF",
+                        "stocks": [
+                            {"code": "510880", "name": "红利ETF", "market": "A股", "type": "ETF", "tags": ["高股息", "红利"]},
+                            {"code": "512890", "name": "红利低波ETF", "market": "A股", "type": "ETF", "tags": ["高股息", "低波动"]},
+                            {"code": "515100", "name": "红利增强ETF", "market": "A股", "type": "ETF", "tags": ["高股息", "增强"]},
+                        ]
+                    },
+                ]
 
-    def _load_all(self) -> List[Watchlist]:
-        """加载所有自选股列表"""
-        if not self.file_path.exists():
-            return []
-        try:
-            with open(self.file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            return [Watchlist.from_dict(item) for item in data]
-        except (json.JSONDecodeError, KeyError):
-            return []
+                for wl_data in default_lists:
+                    wl = DBWatchlist(
+                        id=wl_data['id'],
+                        name=wl_data['name'],
+                        description=wl_data['description'],
+                        created_at=now,
+                        updated_at=now
+                    )
+                    session.add(wl)
+                    session.flush()
 
-    def _save_all(self, watchlists: List[Watchlist]):
-        """保存所有自选股列表"""
-        with open(self.file_path, 'w', encoding='utf-8') as f:
-            json.dump([w.to_dict() for w in watchlists], f, ensure_ascii=False, indent=2)
+                    for s in wl_data['stocks']:
+                        stock = DBWatchlistStock(
+                            watchlist_id=wl.id,
+                            code=s['code'],
+                            name=s['name'],
+                            market=s.get('market', 'A股'),
+                            type=s.get('type', 'ETF'),
+                            notes=s.get('notes', ''),
+                            tags=json.dumps(s.get('tags', []), ensure_ascii=False)
+                        )
+                        session.add(stock)
+
+                logger.info("默认自选股列表初始化完成")
+
+    def _load_watchlist_with_stocks(self, db_watchlist: DBWatchlist) -> Watchlist:
+        """加载自选股及其包含的股票"""
+        with get_db_session() as session:
+            stocks = session.query(DBWatchlistStock).filter(
+                DBWatchlistStock.watchlist_id == db_watchlist.id
+            ).all()
+            stock_list = [StockInfo.from_dict(s.to_dict()) for s in stocks]
+            return Watchlist(
+                id=db_watchlist.id,
+                name=db_watchlist.name,
+                description=db_watchlist.description or '',
+                stocks=stock_list,
+                created_at=str(db_watchlist.created_at) if db_watchlist.created_at else '',
+                updated_at=str(db_watchlist.updated_at) if db_watchlist.updated_at else ''
+            )
 
     def list_watchlists(self) -> List[Watchlist]:
         """获取所有自选股列表"""
-        return self._load_all()
+        cache_key = CacheKeys.watchlist_list()
+        cached = self.cache.get(cache_key)
+        if cached:
+            return [Watchlist.from_dict(w) for w in cached]
+
+        with get_db_session() as session:
+            watchlists = session.query(DBWatchlist).all()
+            result = [self._load_watchlist_with_stocks(w) for w in watchlists]
+
+        self.cache.set(cache_key, [w.to_dict() for w in result], expire=self._cache_ttl)
+        return result
 
     def get_watchlist(self, watchlist_id: str) -> Optional[Watchlist]:
         """获取指定自选股列表"""
-        watchlists = self._load_all()
-        for w in watchlists:
-            if w.id == watchlist_id:
-                return w
+        with get_db_session() as session:
+            wl = session.query(DBWatchlist).filter(DBWatchlist.id == watchlist_id).first()
+            if wl:
+                return self._load_watchlist_with_stocks(wl)
         return None
 
     def create_watchlist(self, name: str, description: str = "") -> Watchlist:
         """创建新的自选股列表"""
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        watchlist = Watchlist(
-            id=str(uuid.uuid4())[:8],
+        now = datetime.now()
+        watchlist_id = str(uuid.uuid4())[:8]
+
+        with get_db_session() as session:
+            wl = DBWatchlist(
+                id=watchlist_id,
+                name=name,
+                description=description,
+                created_at=now,
+                updated_at=now
+            )
+            session.add(wl)
+
+        self._invalidate_cache()
+        return Watchlist(
+            id=watchlist_id,
             name=name,
             description=description,
             stocks=[],
-            created_at=now,
-            updated_at=now
+            created_at=now.strftime('%Y-%m-%d %H:%M:%S'),
+            updated_at=now.strftime('%Y-%m-%d %H:%M:%S')
         )
-        watchlists = self._load_all()
-        watchlists.append(watchlist)
-        self._save_all(watchlists)
-        return watchlist
 
     def update_watchlist(self, watchlist_id: str, name: Optional[str] = None, description: Optional[str] = None) -> Optional[Watchlist]:
         """更新自选股列表"""
-        watchlists = self._load_all()
-        for w in watchlists:
-            if w.id == watchlist_id:
+        with get_db_session() as session:
+            wl = session.query(DBWatchlist).filter(DBWatchlist.id == watchlist_id).first()
+            if wl:
                 if name is not None:
-                    w.name = name
+                    wl.name = name
                 if description is not None:
-                    w.description = description
-                w.updated_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                self._save_all(watchlists)
-                return w
+                    wl.description = description
+                wl.updated_at = datetime.now()
+                self._invalidate_cache()
+                return self._load_watchlist_with_stocks(wl)
         return None
 
     def delete_watchlist(self, watchlist_id: str) -> bool:
         """删除自选股列表"""
-        watchlists = self._load_all()
-        original_len = len(watchlists)
-        watchlists = [w for w in watchlists if w.id != watchlist_id]
-        if len(watchlists) < original_len:
-            self._save_all(watchlists)
-            return True
+        with get_db_session() as session:
+            wl = session.query(DBWatchlist).filter(DBWatchlist.id == watchlist_id).first()
+            if wl:
+                session.delete(wl)
+                self._invalidate_cache()
+                return True
         return False
 
     def add_stock(self, watchlist_id: str, stock: StockInfo) -> bool:
         """添加股票到自选股列表"""
-        watchlists = self._load_all()
-        for w in watchlists:
-            if w.id == watchlist_id:
-                if not any(s.code == stock.code for s in w.stocks):
-                    w.stocks.append(stock)
-                    w.updated_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    self._save_all(watchlists)
-                    return True
+        with get_db_session() as session:
+            existing = session.query(DBWatchlistStock).filter(
+                DBWatchlistStock.watchlist_id == watchlist_id,
+                DBWatchlistStock.code == stock.code
+            ).first()
+
+            if existing:
+                return False
+
+            wl = session.query(DBWatchlist).filter(DBWatchlist.id == watchlist_id).first()
+            if wl:
+                ws = DBWatchlistStock(
+                    watchlist_id=watchlist_id,
+                    code=stock.code,
+                    name=stock.name,
+                    market=stock.market,
+                    type=stock.type,
+                    notes=stock.notes,
+                    tags=json.dumps(stock.tags, ensure_ascii=False)
+                )
+                session.add(ws)
+                wl.updated_at = datetime.now()
+                self._invalidate_cache()
+                return True
         return False
 
     def remove_stock(self, watchlist_id: str, stock_code: str) -> bool:
         """从自选股列表移除股票"""
-        watchlists = self._load_all()
-        for w in watchlists:
-            if w.id == watchlist_id:
-                original_len = len(w.stocks)
-                w.stocks = [s for s in w.stocks if s.code != stock_code]
-                if len(w.stocks) < original_len:
-                    w.updated_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    self._save_all(watchlists)
-                    return True
+        with get_db_session() as session:
+            ws = session.query(DBWatchlistStock).filter(
+                DBWatchlistStock.watchlist_id == watchlist_id,
+                DBWatchlistStock.code == stock_code
+            ).first()
+
+            if ws:
+                session.delete(ws)
+                wl = session.query(DBWatchlist).filter(DBWatchlist.id == watchlist_id).first()
+                if wl:
+                    wl.updated_at = datetime.now()
+                self._invalidate_cache()
+                return True
         return False
 
     def update_stock(self, watchlist_id: str, stock: StockInfo) -> bool:
         """更新股票信息"""
-        watchlists = self._load_all()
-        for w in watchlists:
-            if w.id == watchlist_id:
-                for i, s in enumerate(w.stocks):
-                    if s.code == stock.code:
-                        w.stocks[i] = stock
-                        w.updated_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        self._save_all(watchlists)
-                        return True
+        with get_db_session() as session:
+            ws = session.query(DBWatchlistStock).filter(
+                DBWatchlistStock.watchlist_id == watchlist_id,
+                DBWatchlistStock.code == stock.code
+            ).first()
+
+            if ws:
+                ws.name = stock.name
+                ws.market = stock.market
+                ws.type = stock.type
+                ws.notes = stock.notes
+                ws.tags = json.dumps(stock.tags, ensure_ascii=False)
+                wl = session.query(DBWatchlist).filter(DBWatchlist.id == watchlist_id).first()
+                if wl:
+                    wl.updated_at = datetime.now()
+                self._invalidate_cache()
+                return True
         return False
 
     def get_all_stocks(self) -> List[StockInfo]:
         """获取所有自选股（去重）"""
-        watchlists = self._load_all()
+        watchlists = self.list_watchlists()
         seen = set()
         all_stocks = []
         for w in watchlists:
