@@ -358,6 +358,7 @@ report_id = rm.save_report(backtest_result)
 - **单元测试**：DCA 回测核心逻辑 (`tests/test_dca_backtest.py`)
 - **Manager 测试**：各管理器的 CRUD 操作 (`tests/ui/test_managers.py`)
 - **新功能测试**：分析、导出、进度、缓存 (`tests/test_new_features.py`)
+- **任务管理测试**：AutoTask 序列化/反序列化 (`tests/test_task_manager.py`)
 - **集成测试**：端到端工作流 (`tests/ui/test_integration.py`)
 
 ### Fixtures
@@ -416,5 +417,6 @@ pytest tests/ui/test_integration.py -v
 | 9 | 实时价格获取 | ⏳ 待优化 |
 | **P3 - 体验优化** |||
 | 10 | 回测进度显示 | ✅ 已完成 |
-| 11 | 移动端适配 | ❌ 未开始 |
-| 12 | 多语言支持 | ❌ 未开始 |
+| 11 | UI 界面优化 | ✅ 已完成 |
+| 12 | 移动端适配 | ❌ 未开始 |
+| 13 | 多语言支持 | ❌ 未开始 |
