@@ -766,13 +766,9 @@ def page_compare(sd2, ed2, amt2, esl, slr, etp, tpr, mdt, tpsr, ds):
                 help=t("stock_codes_help")
             )
             
-            col_start2, col_end2 = st.columns(2)
-            with col_start2:
-                start_date2 = st.date_input(t("sidebar_start_date"), value=date(2022, 1, 1), key="start2")
-            with col_end2:
-                end_date2 = st.date_input(t("sidebar_end_date"), value=date(2024, 12, 31), key="end2")
+            st.caption(f"📅 回测时间: {sd2} ~ {ed2}")
             
-            amount2 = st.number_input(t("sidebar_amount"), min_value=100, value=1000, step=100, key="amt2")
+            amount2 = st.number_input(t("sidebar_amount"), min_value=100, value=int(amt2), step=100, key="amt2")
             
             compare_btn = st.button(t("btn_start_compare"), type="primary", use_container_width=True)
     
@@ -784,7 +780,7 @@ def page_compare(sd2, ed2, amt2, esl, slr, etp, tpr, mdt, tpsr, ds):
                 
                 tester = FundBacktester(data_source=ds)
                 results = tester.compare(
-                    fund_list, str(start_date2), str(end_date2), amount2,
+                    fund_list, str(sd2), str(ed2), amount2,
                     enable_stop_loss=esl,
                     stop_loss_rate=slr,
                     enable_take_profit=etp,
