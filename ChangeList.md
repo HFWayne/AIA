@@ -79,6 +79,52 @@
 
 ---
 
+## v1.5.0 - 2026-03-29
+
+### 新增功能
+
+**回测结果分析 (backtest/analysis.py)**
+- 夏普比率计算
+- 卡玛比率计算
+- 索提诺比率计算
+- 最大回撤及持续时间
+- 胜率和盈亏比
+- 多策略对比分析
+
+**报告导出 (backtest/report_exporter.py)**
+- Excel 多 sheet 导出（汇总、交易记录、策略参数）
+- CSV 导出
+- 多报告对比导出
+
+**进度追踪 (backtest/progress.py)**
+- 实时进度回调
+- 多任务并发追踪
+- Streamlit 进度条支持
+
+**分级缓存 (data_source/cache/tiered_cache.py)**
+- L1 内存 LRU 缓存
+- L2 Redis 缓存
+- 缓存预热服务
+
+**增量数据同步 (data_source/sync/free_sync.py)**
+- 自动检测最新日期
+- 进度回调支持
+- 自选股批量同步
+
+**自动化测试**
+- 63+ 单元测试
+- 回测分析测试
+- 报告导出测试
+- 进度追踪测试
+- 分级缓存测试
+
+### Bug修复
+
+- 修复 `use_container_width` 弃用警告（改为 `width='stretch'`）
+- 修复 Report 类名与 SQLAlchemy 模型冲突
+
+---
+
 ## v1.4.0 - 2026-03-27
 
 ### 新增功能
