@@ -833,13 +833,40 @@ def page_reports():
                         with col_actions:
                             col_v, col_d = st.columns(2)
                             with col_v:
-                                if st.button(t("btn_view_detail"), key=f"view_{report.id}", help="View"):
+                                if st.button(t("btn_view_detail"), key=f"view_{report.id}", help="View", use_container_width=True):
                                     st.session_state['selected_report_id'] = report.id
-                                    st.rerun()
                             with col_d:
-                                if st.button(t("btn_delete"), key=f"del_{report.id}", help="Delete"):
+                                if st.button(t("btn_delete"), key=f"del_{report.id}", help="Delete", use_container_width=True):
                                     rm.delete_report(report.id)
                                     st.rerun()
+                    
+                    # 显示选中报告的详情
+                    if st.session_state.get('selected_report_id') == report.id:
+                        with st.container():
+                            st.markdown("---")
+                            loaded_report = rm.load_report(report.id)
+                            if loaded_report:
+                                st.markdown(f"### {loaded_report.name}")
+                                st.caption(f"ID: {loaded_report.id} | 创建时间: {loaded_report.created_at}")
+                                
+                                render_report_metrics(loaded_report)
+                                
+                                fig = plot_report_trades(loaded_report)
+                                if fig is not None:
+                                    st.pyplot(fig)
+                                
+                                col_d, col_e = st.columns(2)
+                                with col_d:
+                                    if st.button("删除", key=f"delete_{report.id}", use_container_width=True):
+                                        rm.delete_report(report.id)
+                                        st.session_state['selected_report_id'] = None
+                                        st.rerun()
+                                with col_e:
+                                    if st.button("关闭", key=f"close_{report.id}", use_container_width=True):
+                                        st.session_state['selected_report_id'] = None
+                                        st.rerun()
+                            
+                            st.markdown("---")
                         
                         st.markdown("</div>", unsafe_allow_html=True)
                         st.markdown("")
