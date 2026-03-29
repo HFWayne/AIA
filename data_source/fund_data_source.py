@@ -180,9 +180,18 @@ class FundDataSource:
             logger.warning(f"保存数据库失败: {e}")
 
     def _get_source_priority(self) -> List[str]:
-        """获取数据源优先级"""
+        """获取数据源优先级
+        
+        当主数据源失败时，自动尝试其他数据源
+        """
         if self.current_source == "auto":
             return ["tushare", "akshare", "baostock"]
+        elif self.current_source == "tushare":
+            return ["tushare", "akshare", "baostock"]
+        elif self.current_source == "akshare":
+            return ["akshare", "tushare", "baostock"]
+        elif self.current_source == "baostock":
+            return ["baostock", "akshare", "tushare"]
         return [self.current_source]
 
     def _get_fund_from_tushare(self, fund_code: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
@@ -227,11 +236,10 @@ class FundDataSource:
         return None
 
     def _get_fund_from_akshare(self, fund_code: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
-        """从akshare获取基金数据"""
+        """从akshare获取股票历史数据"""
         funcs_to_try = [
-            ('stock_zh_a_hist_sina', {'symbol': fund_code}),
-            ('fund_etf_hist_sina', {'symbol': fund_code}),
-            ('fund_etf_hist_em', {'symbol': fund_code}),
+            ('stock_zh_a_hist', {'symbol': fund_code, 'start_date': start_date, 'end_date': end_date, 'adjust': 'hfq'}),
+            ('stock_zh_a_daily', {'symbol': fund_code, 'start_date': start_date, 'end_date': end_date, 'adjust': 'hfq'}),
         ]
 
         for retry in range(self.max_retries):
@@ -246,35 +254,29 @@ class FundDataSource:
                     df = func(**kwargs)
 
                     if df is not None and not df.empty:
-                        logger.info(f"Got data from {func_name}")
+                        logger.info(f"Got data from {func_name}: {len(df)} rows")
 
-                        for date_col in ['day', '日期', 'date']:
-                            if date_col in df.columns:
-                                df['day'] = pd.to_datetime(df[date_col])
-                                break
-
-                        for price_col in ['close', '收盘', 'close_x', '单位净值']:
-                            if price_col in df.columns:
-                                df['price'] = df[price_col]
-                                break
-
-                        start_dt = pd.to_datetime(start_date)
-                        end_dt = pd.to_datetime(end_date)
-                        df = df[(df['day'] >= start_dt) & (df['day'] <= end_dt)]
+                        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+                        df = df.dropna(subset=['date'])
+                        df['nav'] = pd.to_numeric(df['close'], errors='coerce')
+                        df['accum_nav'] = df['nav']
 
                         result = pd.DataFrame()
-                        result['date'] = df['day'].dt.strftime('%Y%m%d')
-                        result['nav'] = df['price']
-                        result['accum_nav'] = df['price']
+                        result['date'] = df['date'].dt.strftime('%Y%m%d')
+                        result['nav'] = df['nav']
+                        result['accum_nav'] = df['accum_nav']
+                        result['open'] = pd.to_numeric(df['open'], errors='coerce')
+                        result['high'] = pd.to_numeric(df['high'], errors='coerce')
+                        result['low'] = pd.to_numeric(df['low'], errors='coerce')
 
-                        logger.info(f"Got {len(result)} rows")
+                        logger.info(f"akshare: {func_name} 返回 {len(result)} 条数据")
                         return result.sort_values('date')
                 except Exception as e:
                     logger.warning(f"ak.{func_name} error: {e}")
         return None
 
     def _get_fund_from_baostock(self, fund_code: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
-        """从baostock获取基金数据"""
+        """从baostock获取股票历史数据"""
         try:
             bs.login()
             if '-' in start_date:
@@ -284,7 +286,12 @@ class FundDataSource:
                 start_str = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:]}"
                 end_str = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:]}"
 
-            code_formats = [f"of.{fund_code}", f"sh.{fund_code}", f"sz.{fund_code}"]
+            if fund_code.startswith('6'):
+                code_formats = [f"sh.{fund_code}"]
+            elif fund_code.startswith(('0', '3')):
+                code_formats = [f"sz.{fund_code}"]
+            else:
+                code_formats = [f"sh.{fund_code}", f"sz.{fund_code}"]
 
             for retry in range(self.max_retries):
                 for code in code_formats:
@@ -309,11 +316,14 @@ class FundDataSource:
 
                             if data_list:
                                 df = pd.DataFrame(data_list, columns=rs.fields)
-                                logger.info(f"Got {len(df)} rows from Baostock")
+                                logger.info(f"Baostock 返回 {len(df)} 条数据")
                                 df = df.rename(columns={'close': 'nav'})
                                 df['accum_nav'] = df['nav']
+                                df['open'] = pd.to_numeric(df['open'], errors='coerce')
+                                df['high'] = pd.to_numeric(df['high'], errors='coerce')
+                                df['low'] = pd.to_numeric(df['low'], errors='coerce')
                                 bs.logout()
-                                return df[['date', 'nav', 'accum_nav']]
+                                return df[['date', 'nav', 'accum_nav', 'open', 'high', 'low']]
                         else:
                             logger.warning(f"Baostock query failed: {rs.error_msg}")
                     except Exception as e:
@@ -321,7 +331,7 @@ class FundDataSource:
 
             bs.logout()
         except Exception as e:
-            logger.warning(f"Baostock fund error: {e}")
+            logger.warning(f"Baostock error: {e}")
         return None
 
     def get_stock_info(self, stock_code: str) -> Optional[dict]:
