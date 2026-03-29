@@ -84,10 +84,17 @@ project/
 │   └── __init__.py
 ├── tasks/                    # 任务相关
 │   └── task_manager.py       # 任务管理器
+├── i18n/                     # 国际化
+│   ├── __init__.py           # 翻译函数
+│   └── locales/
+│       ├── zh_CN.py         # 中文语言包
+│       └── en_US.py         # 英文语言包
 ├── tests/                   # 测试
 │   ├── conftest.py          # 共享 fixtures
 │   ├── test_dca_backtest.py # DCA 回测测试
 │   ├── test_new_features.py # 新功能测试
+│   ├── test_i18n.py        # i18n 测试
+│   ├── test_task_manager.py # 任务管理测试
 │   ├── ui/
 │   │   ├── conftest.py      # UI 测试辅助类和 fixtures
 │   │   ├── test_managers.py # Manager 集成测试
@@ -124,6 +131,8 @@ project/
 | `FundDataSource` | data_source/fund_data_source.py | 数据源 |
 | `DCABacktest` | backtest/dca_backtest.py | DCA 回测引擎 |
 | `FundBacktester` | backtest/__init__.py | 回测包装器 |
+| `t()` | i18n/__init__.py | 翻译函数 |
+| `render_language_selector()` | i18n/__init__.py | 语言选择器 |
 
 ## 核心功能
 
@@ -359,6 +368,7 @@ report_id = rm.save_report(backtest_result)
 - **Manager 测试**：各管理器的 CRUD 操作 (`tests/ui/test_managers.py`)
 - **新功能测试**：分析、导出、进度、缓存 (`tests/test_new_features.py`)
 - **任务管理测试**：AutoTask 序列化/反序列化 (`tests/test_task_manager.py`)
+- **i18n 测试**：国际化翻译 (`tests/test_i18n.py`)
 - **集成测试**：端到端工作流 (`tests/ui/test_integration.py`)
 
 ### Fixtures
@@ -380,6 +390,9 @@ pytest tests/ui/test_managers.py -v
 
 # 运行新功能测试
 pytest tests/test_new_features.py -v
+
+# 运行 i18n 测试
+pytest tests/test_i18n.py -v
 
 # 运行集成测试
 pytest tests/ui/test_integration.py -v

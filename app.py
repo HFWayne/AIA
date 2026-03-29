@@ -16,10 +16,11 @@ from backtest.report_manager import ReportManager
 from backtest.page_watchlist import render_watchlist_manager
 from backtest.page_strategy import render_strategy_manager
 from backtest.page_task import render_task_manager
+from i18n import t, render_language_selector, get_locale
 
 
 st.set_page_config(
-    page_title="股票定投回测工具",
+    page_title=t("page_title"),
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -330,54 +331,58 @@ def render_report_metrics(report):
 
 def sidebar_params():
     """侧边栏参数"""
-    st.sidebar.markdown("""
+    st.sidebar.markdown(f"""
     <div style="text-align: center; padding: 1rem 0;">
-        <h2 style="margin: 0; color: #1E3A5F;">⚙️ 参数设置</h2>
+        <h2 style="margin: 0; color: #1E3A5F;">{t("sidebar_title")}</h2>
     </div>
     """, unsafe_allow_html=True)
     
-    with st.sidebar.expander("📅 回测时间", expanded=True):
-        start_date = st.date_input("开始日期", value=date(2022, 1, 1), key="sidebar_start")
-        end_date = st.date_input("结束日期", value=date(2024, 12, 31), key="sidebar_end")
+    with st.sidebar.expander(t("expander_date_range"), expanded=True):
+        start_date = st.date_input(t("sidebar_start_date"), value=date(2022, 1, 1), key="sidebar_start")
+        end_date = st.date_input(t("sidebar_end_date"), value=date(2024, 12, 31), key="sidebar_end")
     
-    with st.sidebar.expander("💰 投资设置", expanded=True):
-        amount = st.number_input("每次定投金额(元)", min_value=100, value=1000, step=100)
+    with st.sidebar.expander(t("expander_investment"), expanded=True):
+        amount = st.number_input(t("sidebar_amount"), min_value=100, value=1000, step=100)
         
-        frequency = st.selectbox("定投频率", ["每月", "每周", "每日"], index=0)
-        freq_map = {"每月": "monthly", "每周": "weekly", "每日": "daily"}
+        frequency = st.selectbox(t("sidebar_frequency"), [t("freq_monthly"), t("freq_weekly"), t("freq_daily")], index=0)
+        freq_map = {t("freq_monthly"): "monthly", t("freq_weekly"): "weekly", t("freq_daily"): "daily"}
         frequency = freq_map[frequency]
         
         day_of_month: int = 1
         day_of_week: int = 0
         if frequency == "monthly":
-            day_of_month = st.selectbox("每月定投日期", list(range(1, 29)), index=0)
+            day_of_month = st.selectbox(t("sidebar_monthly_day"), list(range(1, 29)), index=0)
         elif frequency == "weekly":
-            day_of_week_str: str = st.selectbox("每周定投日", ["周一", "周二", "周三", "周四", "周五"], index=0)
-            day_of_week_map = {"周一": 0, "周二": 1, "周三": 2, "周四": 3, "周五": 4}
+            day_of_week_str: str = st.selectbox(t("sidebar_weekly_day"), 
+                [t("weekday_monday"), t("weekday_tuesday"), t("weekday_wednesday"), 
+                 t("weekday_thursday"), t("weekday_friday")], index=0)
+            day_of_week_map = {t("weekday_monday"): 0, t("weekday_tuesday"): 1, 
+                               t("weekday_wednesday"): 2, t("weekday_thursday"): 3, 
+                               t("weekday_friday"): 4}
             day_of_week = day_of_week_map[day_of_week_str]
     
-    with st.sidebar.expander("🛡️ 止损设置", expanded=False):
-        enable_stop_loss = st.checkbox("启用止损", value=False)
+    with st.sidebar.expander(t("expander_stop_loss"), expanded=False):
+        enable_stop_loss = st.checkbox(t("sidebar_enable_stop_loss"), value=False)
         
         stop_loss_rate = 0.15
         stop_loss_sell_ratio = 1.0
         if enable_stop_loss:
-            stop_loss_rate = st.slider("止损率(%)", min_value=5, max_value=30, value=15) / 100
-            stop_loss_sell_ratio = st.slider("止损卖出比例(%)", min_value=50, max_value=100, value=100) / 100
+            stop_loss_rate = st.slider(t("sidebar_stop_loss_rate"), min_value=5, max_value=30, value=15) / 100
+            stop_loss_sell_ratio = st.slider(t("sidebar_stop_loss_ratio"), min_value=50, max_value=100, value=100) / 100
     
-    with st.sidebar.expander("🎯 止盈设置", expanded=False):
-        enable_take_profit = st.checkbox("启用止盈", value=False)
+    with st.sidebar.expander(t("expander_take_profit"), expanded=False):
+        enable_take_profit = st.checkbox(t("sidebar_enable_take_profit"), value=False)
         
         take_profit_rate = 0.20
         max_drawdown_threshold = 0.10
         take_profit_sell_ratio = 0.5
         if enable_take_profit:
-            take_profit_rate = st.slider("止盈收益率(%)", min_value=5, max_value=50, value=20) / 100
-            max_drawdown_threshold = st.slider("最大回撤阈值(%)", min_value=5, max_value=30, value=10) / 100
-            take_profit_sell_ratio = st.slider("卖出比例(%)", min_value=10, max_value=100, value=50) / 100
+            take_profit_rate = st.slider(t("sidebar_take_profit_rate"), min_value=5, max_value=50, value=20) / 100
+            max_drawdown_threshold = st.slider(t("sidebar_max_drawdown_threshold"), min_value=5, max_value=30, value=10) / 100
+            take_profit_sell_ratio = st.slider(t("sidebar_sell_ratio"), min_value=10, max_value=100, value=50) / 100
     
-    with st.sidebar.expander("📉 补仓设置", expanded=False):
-        enable_dip_buy = st.checkbox("启用单日大跌补仓", value=False)
+    with st.sidebar.expander(t("expander_dip_buy"), expanded=False):
+        enable_dip_buy = st.checkbox(t("sidebar_enable_dip_buy"), value=False)
         dip_buy_tier1_threshold = -0.03
         dip_buy_tier1_amount = 1000.0
         dip_buy_tier2_threshold = -0.05
@@ -388,47 +393,47 @@ def sidebar_params():
         if enable_dip_buy:
             col1, col2 = st.columns(2)
             with col1:
-                st.write("档位1: 跌幅>")
-                st.write("档位2: 跌幅>")
-                st.write("档位3: 跌幅>")
+                st.write(f"{t('dip_tier_label')}1: {t('dip_fall_label')}")
+                st.write(f"{t('dip_tier_label')}2: {t('dip_fall_label')}")
+                st.write(f"{t('dip_tier_label')}3: {t('dip_fall_label')}")
             with col2:
-                tier1 = st.selectbox("t1", ["3%", "5%", "7%"], index=0, key="dip1")
-                tier2 = st.selectbox("t2", ["3%", "5%", "7%"], index=1, key="dip2")
-                tier3 = st.selectbox("t3", ["3%", "5%", "7%"], index=2, key="dip3")
-                tier_map = {"3%": -0.03, "5%": -0.05, "7%": -0.07}
+                tier1 = st.selectbox("t1", [t("dip_3pct"), t("dip_5pct"), t("dip_7pct")], index=0, key="dip1")
+                tier2 = st.selectbox("t2", [t("dip_3pct"), t("dip_5pct"), t("dip_7pct")], index=1, key="dip2")
+                tier3 = st.selectbox("t3", [t("dip_3pct"), t("dip_5pct"), t("dip_7pct")], index=2, key="dip3")
+                tier_map = {t("dip_3pct"): -0.03, t("dip_5pct"): -0.05, t("dip_7pct"): -0.07}
                 dip_buy_tier1_threshold = tier_map.get(tier1, -0.03)
                 dip_buy_tier2_threshold = tier_map.get(tier2, -0.05)
                 dip_buy_tier3_threshold = tier_map.get(tier3, -0.07)
             
             col3, col4 = st.columns(2)
             with col3:
-                st.write("补仓金额:")
+                st.write(t("dip_amount_label"))
             with col4:
                 dip_buy_tier1_amount = st.number_input("1", min_value=100, value=1000, step=100, key="dip_amt1")
                 dip_buy_tier2_amount = st.number_input("2", min_value=100, value=1000, step=100, key="dip_amt2")
                 dip_buy_tier3_amount = st.number_input("3", min_value=100, value=1000, step=100, key="dip_amt3")
     
-    with st.sidebar.expander("📈 收益增强", expanded=False):
-        enable_yield_boost = st.checkbox("启用累计收益率增额", value=False)
+    with st.sidebar.expander(t("expander_yield_boost"), expanded=False):
+        enable_yield_boost = st.checkbox(t("sidebar_enable_yield_boost"), value=False)
         yield_boost_trigger = -0.20
         yield_boost_recover = -0.10
         yield_boost_amount = 1000.0
         
         if enable_yield_boost:
-            yield_boost_trigger = st.slider("累计收益率低于(%)", min_value=-30, max_value=-5, value=-20) / 100
-            yield_boost_amount = st.number_input("每次增额(元)", min_value=100, value=1000, step=100)
-            yield_boost_recover = st.slider("收益率回升到(%)", min_value=-30, max_value=-5, value=-10) / 100
+            yield_boost_trigger = st.slider(t("sidebar_trigger_threshold"), min_value=-30, max_value=-5, value=-20) / 100
+            yield_boost_amount = st.number_input(t("sidebar_boost_amount"), min_value=100, value=1000, step=100)
+            yield_boost_recover = st.slider(t("sidebar_recover_threshold"), min_value=-30, max_value=-5, value=-10) / 100
             
             if yield_boost_recover >= yield_boost_trigger:
-                st.error("恢复阈值必须大于触发阈值")
+                st.error(t("error_recovery_threshold"))
     
-    with st.sidebar.expander("📡 数据源", expanded=False):
-        data_source = st.selectbox("选择数据源", AVAILABLE_SOURCES, index=0)
+    with st.sidebar.expander(t("expander_data_source"), expanded=False):
+        data_source = st.selectbox(t("sidebar_select_source"), AVAILABLE_SOURCES, index=0)
     
     st.sidebar.markdown("---")
-    st.sidebar.markdown("""
+    st.sidebar.markdown(f"""
     <div style="text-align: center; color: #64748B; font-size: 0.8rem; padding: 1rem;">
-        📈 股票定投回测工具 v1.5.0
+        📈 Stock DCA Backtesting {t("sidebar_version")}
     </div>
     """, unsafe_allow_html=True)
     
@@ -445,7 +450,7 @@ def plot_report_trades(report):
     """绘制报告的交易曲线"""
     try:
         if report.trades is None or len(report.trades) == 0:
-            st.warning("暂无交易记录")
+            st.warning(t("empty_no_trades"))
             return None
         
         if isinstance(report.trades, pd.DataFrame):
@@ -454,7 +459,7 @@ def plot_report_trades(report):
             trades = pd.DataFrame(report.trades)
         
         if 'date' not in trades.columns:
-            st.warning("交易记录缺少日期字段")
+            st.warning(t("empty_trades_missing_date"))
             return None
         
         trades['date'] = pd.to_datetime(trades['date'], errors='coerce')
@@ -462,23 +467,23 @@ def plot_report_trades(report):
         trades = trades.sort_values('date')
         trades['total_invested'] = [report.investment_amount * i for i in range(1, len(trades) + 1)]
     except Exception as e:
-        st.error(f"绘制图表失败: {str(e)}")
+        st.error(f"Plot error: {str(e)}")
         return None
     
     fig, axes = plt.subplots(2, 1, figsize=(10, 8), dpi=100)
     
     ax1 = axes[0]
-    ax1.plot(trades['date'], trades['total_invested'], label='累计投入', color='blue', linewidth=2)
-    ax1.plot(trades['date'], trades['portfolio_value'], label='资产总值', color='green', linewidth=2)
+    ax1.plot(trades['date'], trades['total_invested'], label=t("label_total_invested"), color='blue', linewidth=2)
+    ax1.plot(trades['date'], trades['portfolio_value'], label=t("label_portfolio_value"), color='green', linewidth=2)
     ax1.fill_between(trades['date'], trades['total_invested'], trades['portfolio_value'],
                     where=trades['portfolio_value'] >= trades['total_invested'],
-                    alpha=0.3, color='green', label='盈利')
+                    alpha=0.3, color='green', label=t("label_profit"))
     ax1.fill_between(trades['date'], trades['total_invested'], trades['portfolio_value'],
                     where=trades['portfolio_value'] < trades['total_invested'],
-                    alpha=0.3, color='red', label='亏损')
-    ax1.set_title(f'{report.name} - 投入与收益曲线', fontsize=12)
-    ax1.set_xlabel('日期')
-    ax1.set_ylabel('金额(元)')
+                    alpha=0.3, color='red', label=t("label_loss"))
+    ax1.set_title(t("chart_title_invest_profit").format(name=report.name), fontsize=12)
+    ax1.set_xlabel(t("label_date"))
+    ax1.set_ylabel(t("label_amount"))
     ax1.legend(loc='upper left')
     ax1.grid(True, alpha=0.3)
     
@@ -489,9 +494,9 @@ def plot_report_trades(report):
                      where=trades['return_rate'] >= 0, alpha=0.3, color='green')
     ax2.fill_between(trades['date'], 0, trades['return_rate'],
                      where=trades['return_rate'] < 0, alpha=0.3, color='red')
-    ax2.set_title(f'{report.name} - 收益率走势', fontsize=12)
-    ax2.set_xlabel('日期')
-    ax2.set_ylabel('收益率(%)')
+    ax2.set_title(t("chart_title_return_trend").format(name=report.name), fontsize=12)
+    ax2.set_xlabel(t("label_date"))
+    ax2.set_ylabel(t("label_return_rate"))
     ax2.grid(True, alpha=0.3)
     
     plt.tight_layout()
@@ -501,20 +506,20 @@ def plot_report_trades(report):
 def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, slr, slsr, etp, tpr, mdt, tpsr,
                         edb, dt1, da1, dt2, da2, dt3, da3, eyb, ybt, ybr, yba):
     """单股票回测页面"""
-    st.markdown('<div class="section-header">📊 单股票回测</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-header">{t("page_single_backtest")}</div>', unsafe_allow_html=True)
     
     col1, col2 = st.columns([1, 2.5])
     
     with col1:
         with st.container():
-            st.markdown("""
+            st.markdown(f"""
             <div class="card">
-                <h4>📝 股票选择</h4>
+                <h4>{t("stock_selection")}</h4>
             </div>
             """, unsafe_allow_html=True)
             
-            fund_code = st.text_input("股票代码", value="600036", help="如: 600036")
-            fund_name = st.text_input("股票名称", value="", help="留空则自动识别")
+            fund_code = st.text_input(t("stock_code"), value="600036", help=t("stock_code_help"))
+            fund_name = st.text_input(t("stock_name"), value="", help=t("stock_name_help"))
             
             if not fund_name:
                 fund_name = get_fund_name(fund_code)
@@ -522,16 +527,16 @@ def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, 
             st.markdown(f"""
             <div style="background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%); 
                         padding: 1rem; border-radius: 10px; margin: 1rem 0;">
-                <strong>当前选择:</strong> {fund_name} ({fund_code})
+                <strong>{t("current_selection")}:</strong> {fund_name} ({fund_code})
             </div>
             """, unsafe_allow_html=True)
             
             st.markdown("")
-            run_btn = st.button("🚀 开始回测", type="primary", use_container_width=True)
+            run_btn = st.button(t("btn_start_backtest"), type="primary", use_container_width=True)
     
     with col2:
         if run_btn:
-            with st.spinner("⏳ 正在获取数据并计算，请稍候..."):
+            with st.spinner(t("spinner_fetching_data")):
                 tester = FundBacktester(data_source=ds)
                 
                 config = BacktestConfig(
@@ -592,7 +597,7 @@ def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, 
         current_fund_name = st.session_state.get('current_fund_name', fund_name)
         
         if current_result:
-            st.success(f"✅ 回测完成 - {current_fund_name}")
+            st.success(t("msg_backtest_complete").format(name=current_fund_name))
             
             st.markdown("")
             render_metrics(current_result)
@@ -600,7 +605,7 @@ def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, 
             
             col_save1, col_save2 = st.columns([1, 3])
             with col_save1:
-                if st.button("💾 保存报告", key="save_report_btn", use_container_width=True):
+                if st.button(t("btn_save_report"), key="save_report_btn", use_container_width=True):
                     rm = get_report_manager()
                     report_id = rm.save_report(current_result)
                     st.session_state['last_save_id'] = report_id
@@ -608,14 +613,14 @@ def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, 
                     st.rerun()
             
             if 'last_save_id' in st.session_state:
-                st.success(f"✅ 报告已保存! ID: {st.session_state['last_save_id']}")
+                st.success(t("msg_report_saved").format(id=st.session_state['last_save_id']))
             
             st.markdown("---")
             visualizer = BacktestVisualizer()
             fig = visualizer.plot_single_fund(current_result, current_fund_name)
             st.pyplot(fig)
             
-            with st.expander("📋 查看交易记录", expanded=False):
+            with st.expander(t("trades_title"), expanded=False):
                 trades_display = current_result.trades.copy()
                 trades_display['date'] = pd.to_datetime(trades_display['date']).astype(str).str[:10]
                 
@@ -624,45 +629,47 @@ def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, 
                     display_cols.insert(5, 'invest_amount')
                 
                 trades_display = trades_display[display_cols].copy()
-                trades_display.columns = ['日期', '操作', '净值(元)', '份额变化(份)', '累计份额(份)', '投入金额(元)', '组合价值(元)', '收益率(%)', '原因']
-                trades_display['份额变化(份)'] = trades_display['份额变化(份)'].round(2)
-                if '投入金额(元)' in trades_display.columns:
-                    trades_display['投入金额(元)'] = trades_display['投入金额(元)'].round(0).astype(int)
-                trades_display['累计份额(份)'] = trades_display['累计份额(份)'].round(2)
-                trades_display['组合价值(元)'] = trades_display['组合价值(元)'].round(0).astype(int)
+                trades_display.columns = [t("col_date"), t("col_action"), t("col_nav"), t("col_shares_change"), 
+                                        t("col_total_shares"), t("col_invest_amount"), t("col_portfolio_value"), 
+                                        t("col_return_rate"), t("col_reason")]
+                trades_display[t("col_shares_change")] = trades_display[t("col_shares_change")].round(2)
+                if t("col_invest_amount") in trades_display.columns:
+                    trades_display[t("col_invest_amount")] = trades_display[t("col_invest_amount")].round(0).astype(int)
+                trades_display[t("col_total_shares")] = trades_display[t("col_total_shares")].round(2)
+                trades_display[t("col_portfolio_value")] = trades_display[t("col_portfolio_value")].round(0).astype(int)
                 st.dataframe(trades_display, width='stretch', height=300, hide_index=True)
         elif run_btn:
-            st.error("❌ 获取数据失败")
-            with st.expander("💡 排查建议"):
-                st.markdown("""
-                **可能的原因：**
-                1. **股票代码错误** - 请确认股票代码是否正确（如 600036）
-                2. **Tushare 权限不足** - 免费版可能没有该股票的数据权限
-                3. **网络问题** - 无法连接到数据源服务器
-                4. **数据未同步** - 数据库中没有该股票的历史数据
+            st.error(t("error_data_fetch_failed"))
+            with st.expander(t("troubleshoot_title")):
+                st.markdown(f"""
+                **{t("troubleshoot_possible_causes")}**
+                1. **{t("cause_wrong_code")}**
+                2. **{t("cause_no_permission")}**
+                3. **{t("cause_network_error")}**
+                4. **{t("cause_data_not_synced")}**
                 
-                **建议尝试：**
-                - 更换股票代码
-                - 切换数据源（akshare/baostock）
-                - 先同步股票数据到本地数据库
+                **{t("troubleshoot_suggestions")}**
+                - {t("suggest_change_code")}
+                - {t("suggest_change_source")}
+                - {t("suggest_sync_data")}
                 """)
         else:
-            st.markdown("""
+            st.markdown(f"""
             <div class="empty-state">
-                <h3>👈 请在左侧输入股票代码并点击开始回测</h3>
+                <h3>{t("empty_state_hint")}</h3>
             </div>
             """, unsafe_allow_html=True)
             
             st.markdown("---")
-            st.markdown("### 💡 常用股票代码")
+            st.markdown(f"### {t('quick_codes')}")
             
             quick_codes = [
-                ("600036", "招商银行"),
-                ("601318", "中国平安"),
-                ("600519", "贵州茅台"),
-                ("000858", "五粮液"),
-                ("510300", "沪深300ETF"),
-                ("510500", "中证500ETF"),
+                ("600036", t("quick_stock_600036")),
+                ("601318", t("quick_stock_601318")),
+                ("600519", t("quick_stock_600519")),
+                ("000858", t("quick_stock_000858")),
+                ("510300", t("quick_stock_510300")),
+                ("510500", t("quick_stock_510500")),
             ]
             
             cols = st.columns(3)
@@ -673,38 +680,38 @@ def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, 
 
 def page_compare(sd2, ed2, amt2, esl, slr, etp, tpr, mdt, tpsr, ds):
     """多股票对比页面"""
-    st.markdown('<div class="section-header">📈 多股票对比分析</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-header">{t("multi_compare_title")}</div>', unsafe_allow_html=True)
     
     col_left, col_right = st.columns([1, 2.5])
     
     with col_left:
         with st.container():
-            st.markdown("""
+            st.markdown(f"""
             <div class="card">
-                <h4>📝 输入设置</h4>
+                <h4>{t("input_settings")}</h4>
             </div>
             """, unsafe_allow_html=True)
             
             compare_funds = st.text_area(
-                "股票代码（逗号分隔）", 
+                t("stock_codes_input"), 
                 value="600036,601318,600519", 
                 height=100,
-                help="多个代码用逗号分隔，如: 600036,601318,600519"
+                help=t("stock_codes_help")
             )
             
             col_start2, col_end2 = st.columns(2)
             with col_start2:
-                start_date2 = st.date_input("开始日期", value=date(2022, 1, 1), key="start2")
+                start_date2 = st.date_input(t("sidebar_start_date"), value=date(2022, 1, 1), key="start2")
             with col_end2:
-                end_date2 = st.date_input("结束日期", value=date(2024, 12, 31), key="end2")
+                end_date2 = st.date_input(t("sidebar_end_date"), value=date(2024, 12, 31), key="end2")
             
-            amount2 = st.number_input("每次定投金额(元)", min_value=100, value=1000, step=100, key="amt2")
+            amount2 = st.number_input(t("sidebar_amount"), min_value=100, value=1000, step=100, key="amt2")
             
-            compare_btn = st.button("🔍 开始对比", type="primary", use_container_width=True)
+            compare_btn = st.button(t("btn_start_compare"), type="primary", use_container_width=True)
     
     with col_right:
         if compare_btn:
-            with st.spinner("⏳ 正在获取数据并计算，请稍候..."):
+            with st.spinner(t("spinner_fetching_data")):
                 codes = [c.strip() for c in compare_funds.split(',') if c.strip()]
                 fund_list = [{'fund_code': c, 'name': get_fund_name(c)} for c in codes]
                 
@@ -720,19 +727,19 @@ def page_compare(sd2, ed2, amt2, esl, slr, etp, tpr, mdt, tpsr, ds):
                 )
                 
                 if results:
-                    st.success(f"✅ 对比完成 - {len(results)} 个股票")
+                    st.success(t("msg_compare_complete").format(count=len(results)))
                     
                     comp_df = pd.DataFrame([
                         {
-                            '股票': name,
-                            '总投入(元)': f"¥{r.total_invested:,.0f}",
-                            '最终价值(元)': f"¥{r.final_value:,.0f}",
-                            '总收益(%)': f"{r.return_rate:+.2f}%",
-                            '年化收益(%)': f"{r.annual_return:+.2f}%",
-                            '最大回撤(%)': f"{r.max_drawdown:.2f}%",
-                            '定投次数(次)': r.investment_count,
-                            '止损(次)': r.stop_loss_count,
-                            '止盈(次)': r.take_profit_count
+                            t("col_stock"): name,
+                            t("col_total_invested"): f"¥{r.total_invested:,.0f}",
+                            t("col_final_value"): f"¥{r.final_value:,.0f}",
+                            t("col_total_return_pct"): f"{r.return_rate:+.2f}%",
+                            t("col_annual_return_pct"): f"{r.annual_return:+.2f}%",
+                            t("col_max_drawdown_pct"): f"{r.max_drawdown:.2f}%",
+                            t("col_invest_count"): r.investment_count,
+                            t("col_stop_loss_count"): r.stop_loss_count,
+                            t("col_take_profit_count"): r.take_profit_count
                         }
                         for name, r in results.items()
                     ])
@@ -744,23 +751,23 @@ def page_compare(sd2, ed2, amt2, esl, slr, etp, tpr, mdt, tpsr, ds):
                     fig = visualizer.plot_comparison(results)
                     st.pyplot(fig)
                 else:
-                    st.error("❌ 获取数据失败")
-                    with st.expander("💡 排查建议"):
-                        st.markdown("""
-                        **可能的原因：**
-                        1. **股票代码错误** - 请确认所有股票代码是否正确
-                        2. **Tushare 权限不足** - 免费版可能没有部分股票的数据权限
-                        3. **网络问题** - 无法连接到数据源服务器
+                    st.error(t("error_data_fetch_failed"))
+                    with st.expander(t("troubleshoot_title")):
+                        st.markdown(f"""
+                        **{t("troubleshoot_possible_causes")}**
+                        1. **{t("cause_wrong_code")}**
+                        2. **{t("cause_no_permission")}**
+                        3. **{t("cause_network_error")}**
                         
-                        **建议尝试：**
-                        - 更换股票代码，使用有数据的股票
-                        - 切换数据源（akshare/baostock）
+                        **{t("troubleshoot_suggestions")}**
+                        - {t("suggest_change_code")}
+                        - {t("suggest_change_source")}
                         """)
         else:
-            st.markdown("""
+            st.markdown(f"""
             <div class="empty-state">
-                <h3>👈 请输入股票代码并点击开始对比</h3>
-                <p>建议选择 2-5 个股票进行对比分析</p>
+                <h3>{t("empty_state_compare_hint")}</h3>
+                <p>{t("recommend_compare")}</p>
             </div>
             """, unsafe_allow_html=True)
 
@@ -778,28 +785,28 @@ def page_reports():
     
     reports = rm.list_reports()
     
-    tab1, tab2, tab3 = st.tabs(["📋 报告列表", "📊 报告详情", "📈 报告对比"])
+    tab1, tab2, tab3 = st.tabs([t("tab_report_list"), t("tab_report_detail"), t("tab_report_compare")])
     
     with tab1:
-        st.markdown('<div class="section-header">📋 已保存的报告</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-header">{t("reports_title")}</div>', unsafe_allow_html=True)
         
         if not reports:
-            st.markdown("""
+            st.markdown(f"""
             <div class="empty-state">
-                <h3>📭 暂无保存的报告</h3>
-                <p>请先进行回测并保存报告</p>
+                <h3>{t("empty_no_reports_list")}</h3>
+                <p>{t("no_reports")}</p>
             </div>
             """, unsafe_allow_html=True)
         else:
             col_search, col_filter = st.columns([2, 1])
             with col_search:
-                search = st.text_input("🔍 搜索报告", "", key="search_reports")
+                search = st.text_input(t("search_report"), "", key="search_reports")
             with col_filter:
                 fund_codes = list(set(r.fund_code for r in reports))
-                filter_code = st.selectbox("📂 筛选股票", ["全部"] + fund_codes, key="filter_reports")
+                filter_code = st.selectbox(t("filter_stock"), [t("all")] + fund_codes, key="filter_reports")
             
             filtered_reports = rm.list_reports(
-                fund_code=filter_code if filter_code != "全部" else None,
+                fund_code=filter_code if filter_code != t("all") else None,
                 search=search if search else None
             )
             
@@ -813,36 +820,36 @@ def page_reports():
                         col_name, col_rate, col_actions = st.columns([4, 1, 1])
                         with col_name:
                             st.markdown(f"**{report.name}**")
-                            st.caption(f"📌 ID: {report.id} | 🕐 创建: {report.created_at[:19]}")
+                            st.caption(f"📌 {t('report_id_label')}: {report.id} | 🕐 {t('report_created_label')}: {report.created_at[:19]}")
                         with col_rate:
                             delta = "📈" if report.result['return_rate'] >= 0 else "📉"
                             delta_color = "normal" if report.result['return_rate'] >= 0 else "inverse"
-                            st.metric("收益率", f"{report.result['return_rate']:+.2f}%", delta=delta, delta_color=delta_color)
+                            st.metric(t("report_rate_label"), f"{report.result['return_rate']:+.2f}%", delta=delta, delta_color=delta_color)
                         with col_actions:
                             col_v, col_d = st.columns(2)
                             with col_v:
-                                if st.button("👁️", key=f"view_{report.id}", help="查看详情"):
+                                if st.button(t("btn_view_detail"), key=f"view_{report.id}", help="View"):
                                     st.session_state['selected_report_id'] = report.id
                                     st.rerun()
                             with col_d:
-                                if st.button("🗑️", key=f"del_{report.id}", help="删除"):
+                                if st.button(t("btn_delete"), key=f"del_{report.id}", help="Delete"):
                                     rm.delete_report(report.id)
                                     st.rerun()
                         
                         st.markdown("</div>", unsafe_allow_html=True)
                         st.markdown("")
             else:
-                st.info("没有找到匹配的报告")
+                st.info(t("no_reports"))
     
     with tab2:
-        st.markdown('<div class="section-header">📊 报告详情</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-header">{t("report_detail_title")}</div>', unsafe_allow_html=True)
         
         reports = rm.list_reports()
         
         if not reports:
-            st.markdown("""
+            st.markdown(f"""
             <div class="empty-state">
-                <h3>📭 暂无报告</h3>
+                <h3>{t("empty_no_reports_detail")}</h3>
             </div>
             """, unsafe_allow_html=True)
         else:
@@ -858,7 +865,7 @@ def page_reports():
             report_ids = [r.id for r in reports]
             
             selected_idx = st.selectbox(
-                "📋 选择报告",
+                t("select_report"),
                 range(len(reports)),
                 index=default_idx,
                 format_func=lambda x: report_options[x],
@@ -870,7 +877,7 @@ def page_reports():
             
             if report:
                 st.markdown(f"### {report.name}")
-                st.caption(f"🕐 创建时间: {report.created_at}")
+                st.caption(f"🕐 {t('created_time')}: {report.created_at}")
                 
                 st.markdown("")
                 render_report_metrics(report)
@@ -882,19 +889,19 @@ def page_reports():
                 
                 col_del, col_exp, col_trades = st.columns([1, 1, 4])
                 with col_del:
-                    if st.button("🗑️ 删除报告", key="delete_from_detail", use_container_width=True):
+                    if st.button(t("btn_delete_report"), key="delete_from_detail", use_container_width=True):
                         rm.delete_report(report_id)
                         st.session_state['selected_report_id'] = None
                         st.rerun()
                 
                 with col_exp:
                     from backtest.report_exporter import ReportExporter
-                    if st.button("📥 导出报告", key="export_report", use_container_width=True):
+                    if st.button(t("btn_export_report"), key="export_report", use_container_width=True):
                         exporter = ReportExporter()
                         filepath = exporter.export_excel(report)
-                        st.success(f"✅ 报告已导出: {filepath}")
+                        st.success(t("msg_report_exported").format(path=filepath))
                 
-                with st.expander("📋 查看交易记录"):
+                with st.expander(t("trades_title")):
                     trades_df = pd.DataFrame(report.trades)
                     trades_df['date'] = pd.to_datetime(trades_df['date']).dt.strftime('%Y-%m-%d')
                     
@@ -903,27 +910,29 @@ def page_reports():
                         display_cols.insert(5, 'invest_amount')
                     
                     trades_display = trades_df[display_cols].copy()
-                    trades_display.columns = ['日期', '操作', '净值(元)', '份额变化(份)', '累计份额(份)', '投入金额(元)', '组合价值(元)', '收益率(%)', '原因']
-                    trades_display['份额变化(份)'] = trades_display['份额变化(份)'].round(2)
-                    if '投入金额(元)' in trades_display.columns:
-                        trades_display['投入金额(元)'] = trades_display['投入金额(元)'].round(0).astype(int)
-                    trades_display['累计份额(份)'] = trades_display['累计份额(份)'].round(2)
-                    trades_display['组合价值(元)'] = trades_display['组合价值(元)'].round(0).astype(int)
+                    trades_display.columns = [t("col_date"), t("col_action"), t("col_nav"), t("col_shares_change"), 
+                                            t("col_total_shares"), t("col_invest_amount"), t("col_portfolio_value"), 
+                                            t("col_return_rate"), t("col_reason")]
+                    trades_display[t("col_shares_change")] = trades_display[t("col_shares_change")].round(2)
+                    if t("col_invest_amount") in trades_display.columns:
+                        trades_display[t("col_invest_amount")] = trades_display[t("col_invest_amount")].round(0).astype(int)
+                    trades_display[t("col_total_shares")] = trades_display[t("col_total_shares")].round(2)
+                    trades_display[t("col_portfolio_value")] = trades_display[t("col_portfolio_value")].round(0).astype(int)
                     st.dataframe(trades_display, width='stretch', height=300, hide_index=True)
     
     with tab3:
-        st.markdown('<div class="section-header">📈 报告对比</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-header">{t("report_compare_title")}</div>', unsafe_allow_html=True)
         
         if len(reports) < 2:
-            st.markdown("""
+            st.markdown(f"""
             <div class="empty-state">
-                <h3>📭 需要至少2个报告才能进行对比</h3>
-                <p>请先保存更多报告后再使用此功能</p>
+                <h3>{t("empty_no_reports_compare")}</h3>
+                <p>{t("msg_need_more_reports")}</p>
             </div>
             """, unsafe_allow_html=True)
         else:
             selected_ids = st.multiselect(
-                "📊 选择要对比的报告（至少选择2个）",
+                t("select_compare_reports"),
                 options=[r.id for r in reports],
                 default=[r.id for r in reports[:2]] if len(reports) >= 2 else [],
                 format_func=lambda x: next((r.name for r in reports if r.id == x), "")
@@ -935,17 +944,17 @@ def page_reports():
                 
                 comp_df = pd.DataFrame([
                     {
-                        '报告': r.name,
-                        '股票': r.fund_name,
-                        '日期范围': f"{r.start_date} ~ {r.end_date}",
-                        '总投入(元)': f"¥{r.result['total_invested']:,.0f}",
-                        '最终价值(元)': f"¥{r.result['final_value']:,.0f}",
-                        '总收益(%)': f"{r.result['return_rate']:+.2f}%",
-                        '年化收益(%)': f"{r.result['annual_return']:+.2f}%",
-                        '最大回撤(%)': f"{r.result['max_drawdown']:.2f}%",
-                        '定投次数': r.result['investment_count'],
-                        '止损次数': r.result['stop_loss_count'],
-                        '止盈次数': r.result['take_profit_count']
+                        t("col_stock"): r.name,
+                        t("col_stock"): r.fund_name,
+                        t("col_date_range"): f"{r.start_date} ~ {r.end_date}",
+                        t("col_total_invested"): f"¥{r.result['total_invested']:,.0f}",
+                        t("col_final_value"): f"¥{r.result['final_value']:,.0f}",
+                        t("col_total_return_pct"): f"{r.result['return_rate']:+.2f}%",
+                        t("col_annual_return_pct"): f"{r.result['annual_return']:+.2f}%",
+                        t("col_max_drawdown_pct"): f"{r.result['max_drawdown']:.2f}%",
+                        t("col_invest_count"): r.result['investment_count'],
+                        t("col_stop_loss_count"): r.result['stop_loss_count'],
+                        t("col_take_profit_count"): r.result['take_profit_count']
                     }
                     for r in valid_reports
                 ])
@@ -963,12 +972,12 @@ def page_reports():
                 invested = [r.result['total_invested'] for r in valid_reports]
                 final = [r.result['final_value'] for r in valid_reports]
                 width = 0.35
-                ax1.bar([i - width/2 for i in x], invested, width, label='Total Invested', color='steelblue')
-                ax1.bar([i + width/2 for i in x], final, width, label='Final Value', color='coral')
+                ax1.bar([i - width/2 for i in x], invested, width, label=t("label_total_invested_en"), color='steelblue')
+                ax1.bar([i + width/2 for i in x], final, width, label=t("label_final_value"), color='coral')
                 ax1.set_xticks(x)
                 ax1.set_xticklabels(names, rotation=15)
                 ax1.set_ylabel('Amount (CNY)')
-                ax1.set_title('Investment vs Value')
+                ax1.set_title(t("chart_investment_value"))
                 ax1.legend()
                 ax1.grid(True, alpha=0.3)
                 
@@ -978,7 +987,7 @@ def page_reports():
                 ax2.bar(names, returns, color=colors)
                 ax2.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
                 ax2.set_ylabel('Return Rate (%)')
-                ax2.set_title('Total Return Comparison')
+                ax2.set_title(t("chart_return_comparison"))
                 ax2.grid(True, alpha=0.3)
                 for i, v in enumerate(returns):
                     ax2.text(i, v + 1 if v >= 0 else v - 3, f'{v:.1f}%', ha='center', fontsize=9)
@@ -989,34 +998,36 @@ def page_reports():
                 ax3.bar(names, annual, color=colors)
                 ax3.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
                 ax3.set_ylabel('Annual Return (%)')
-                ax3.set_title('Annual Return Comparison')
+                ax3.set_title(t("chart_annual_return"))
                 ax3.grid(True, alpha=0.3)
                 
                 ax4 = axes[1, 1]
                 drawdowns = [r.result['max_drawdown'] for r in valid_reports]
                 ax4.barh(names, drawdowns, color='orange')
                 ax4.set_xlabel('Max Drawdown (%)')
-                ax4.set_title('Max Drawdown Comparison')
+                ax4.set_title(t("chart_max_drawdown"))
                 
                 plt.tight_layout()
                 st.pyplot(fig)
                 
                 st.markdown("")
                 from backtest.report_exporter import MultiReportExporter
-                if st.button("📥 导出对比报告", use_container_width=True):
+                if st.button(t("btn_export_compare"), use_container_width=True):
                     exporter = MultiReportExporter()
                     filepath = exporter.export_comparison_excel(valid_reports)
-                    st.success(f"✅ 对比报告已导出: {filepath}")
+                    st.success(t("msg_compare_exported").format(path=filepath))
             else:
-                st.info("👆 请至少选择2个报告进行对比")
+                st.info(t("msg_select_at_least_two"))
 
 
 def main():
     st.markdown("""
     <div class="main-header">
-        📈 股票定投回测工具
+        📈 """ + t("app_title") + """
     </div>
     """, unsafe_allow_html=True)
+    
+    render_language_selector()
     
     if 'task_running' not in st.session_state:
         st.session_state['task_running'] = False
@@ -1033,12 +1044,12 @@ def main():
      enable_yield_boost, yield_boost_trigger, yield_boost_recover, yield_boost_amount) = params
     
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📊 单股票回测",
-        "📈 多股票对比",
-        "⭐ 自选股",
-        "🎯 策略管理",
-        "📋 自动回测",
-        "📁 报告管理"
+        t("tab_single_backtest"),
+        t("tab_multi_comparison"),
+        t("tab_watchlist"),
+        t("tab_strategy"),
+        t("tab_auto_backtest"),
+        t("tab_reports")
     ])
     
     with tab1:
