@@ -29,6 +29,24 @@ class AkshareSync:
         if REQUEST_DELAY > 0:
             time.sleep(REQUEST_DELAY)
 
+    def sync_all_lists(self) -> dict:
+        """同步所有列表（股票、ETF、债券、货币基金等）"""
+        results = {
+            'stock': 0,
+            'etf': 0,
+            'bond': 0,
+            'money_fund': 0,
+            'fund': 0,
+        }
+        
+        results['stock'] = self.sync_stock_list()
+        results['etf'] = self.sync_etf_list()
+        results['bond'] = self.sync_bond_list()
+        results['money_fund'] = self.sync_money_fund_list()
+        results['fund'] = self.sync_fund_list()
+        
+        return results
+
     def sync_stock_list(self) -> int:
         """同步 A 股股票列表到数据库"""
         if not ENABLE_MYSQL:
@@ -84,25 +102,29 @@ class AkshareSync:
             return 0
             
         try:
+            self._apply_delay()
+            df = ak.fund_etf_spot_em()
+            if df is None or df.empty:
+                logger.warning("获取ETF列表失败，尝试备用方法")
+                return self._sync_etf_list_fallback()
+            
             from data_source.db.connection import get_db_session
             from data_source.db.models import Stock
 
             added = 0
-            etf_codes = [
-                ('510300', '沪深300ETF'), ('510500', '中证500ETF'),
-                ('510050', '上证50ETF'), ('159915', '创业板ETF'),
-                ('512660', '军工ETF'), ('512760', '芯片ETF'),
-                ('515000', '科技ETF'), ('512170', '医疗ETF'),
-                ('512980', '传媒ETF'), ('510880', '红利ETF'),
-            ]
-            
             with get_db_session() as session:
-                for code, name in etf_codes:
-                    code = code.zfill(6)
+                for _, row in df.iterrows():
+                    code = str(row['代码']).zfill(6)
+                    name = str(row['名称'])
+                    
                     existing = session.query(Stock).filter(Stock.code == code).first()
                     if existing:
                         existing.name = name
                         existing.stock_type = 'ETF'
+                        if code.startswith(('5', '1')):
+                            existing.market = 'SH'
+                        else:
+                            existing.market = 'SZ'
                     else:
                         stock = Stock(
                             code=code,
@@ -121,6 +143,200 @@ class AkshareSync:
 
         except Exception as e:
             logger.error(f"同步ETF列表失败: {e}")
+            return self._sync_etf_list_fallback()
+
+    def _sync_etf_list_fallback(self) -> int:
+        """备用 ETF 列表同步"""
+        try:
+            from data_source.db.connection import get_db_session
+            from data_source.db.models import Stock
+
+            etf_codes = [
+                ('510300', '沪深300ETF'), ('510500', '中证500ETF'),
+                ('510050', '上证50ETF'), ('159915', '创业板ETF'),
+                ('512660', '军工ETF'), ('512760', '芯片ETF'),
+                ('515000', '科技ETF'), ('512170', '医疗ETF'),
+                ('512980', '传媒ETF'), ('510880', '红利ETF'),
+                ('159919', '深100ETF'), ('510180', '180ETF'),
+                ('512100', '中证100ETF'), ('512000', '券商ETF'),
+                ('512880', '证券ETF'), ('159920', '恒生ETF'),
+                ('513500', '纳指ETF'), ('513100', '纳指ETF'),
+                ('588000', '科创50ETF'), ('588080', '科创50ETF'),
+                ('159788', '双创50ETF'), ('588050', '科创50ETF'),
+                ('159995', '芯片ETF'), ('515050', '5GETF'),
+                ('159869', '云计算ETF'), ('159819', '人工智能ETF'),
+                ('159825', '农业ETF'), ('512010', '医药ETF'),
+                ('512200', '房地产ETF'), ('512800', '银行ETF'),
+                ('512900', '中证医疗ETF'), ('159992', '创新药ETF'),
+                ('516950', '基建ETF'), ('159628', '短债ETF'),
+                ('511010', '国债ETF'), ('511260', '上海国企ETF'),
+                ('515220', '煤炭ETF'), ('159766', '旅游ETF'),
+                ('159605', '油气ETF'), ('515790', '光伏ETF'),
+                ('516950', '基建ETF'), ('159611', '电力ETF'),
+            ]
+            
+            added = 0
+            with get_db_session() as session:
+                for code, name in etf_codes:
+                    code = code.zfill(6)
+                    existing = session.query(Stock).filter(Stock.code == code).first()
+                    if existing:
+                        existing.name = name
+                        existing.stock_type = 'ETF'
+                    else:
+                        stock = Stock(
+                            code=code,
+                            name=name,
+                            market='SH' if code.startswith(('5', '1')) else 'SZ',
+                            stock_type='ETF'
+                        )
+                        session.add(stock)
+                        added += 1
+
+            logger.info(f"同步ETF列表(备用)完成: 新增 {added} 只")
+            return added
+
+        except Exception as e:
+            logger.error(f"同步ETF列表(备用)失败: {e}")
+            return 0
+
+    def sync_bond_list(self) -> int:
+        """同步债券列表到数据库"""
+        if not ENABLE_MYSQL:
+            logger.warning("MySQL is disabled, skipping bond list sync")
+            return 0
+            
+        try:
+            self._apply_delay()
+            df = ak.bond_zh_hs_spot()
+            if df is None or df.empty:
+                logger.warning("获取债券列表失败")
+                return 0
+            
+            from data_source.db.connection import get_db_session
+            from data_source.db.models import Stock
+
+            added = 0
+            with get_db_session() as session:
+                for _, row in df.iterrows():
+                    code = str(row['代码']).zfill(6)
+                    name = str(row['名称'])
+                    
+                    existing = session.query(Stock).filter(Stock.code == code).first()
+                    if existing:
+                        existing.name = name
+                        existing.stock_type = '债券'
+                        existing.market = 'SH' if code.startswith('9') else 'SZ'
+                    else:
+                        stock = Stock(
+                            code=code,
+                            name=name,
+                            market='SH' if code.startswith('9') else 'SZ',
+                            stock_type='债券'
+                        )
+                        session.add(stock)
+                        added += 1
+
+            if self.cache:
+                self.cache.delete(CacheKeys.stock_list())
+            
+            logger.info(f"同步债券列表完成: 新增 {added} 只")
+            return added
+
+        except Exception as e:
+            logger.error(f"同步债券列表失败: {e}")
+            return 0
+
+    def sync_money_fund_list(self) -> int:
+        """同步货币基金列表到数据库"""
+        if not ENABLE_MYSQL:
+            logger.warning("MySQL is disabled, skipping money fund list sync")
+            return 0
+            
+        try:
+            self._apply_delay()
+            df = ak.fund_money_fund_info_em()
+            if df is None or df.empty:
+                logger.warning("获取货币基金列表失败")
+                return 0
+            
+            from data_source.db.connection import get_db_session
+            from data_source.db.models import Stock
+
+            added = 0
+            with get_db_session() as session:
+                for _, row in df.iterrows():
+                    code = str(row['代码']).zfill(6)
+                    name = str(row['名称'])
+                    
+                    existing = session.query(Stock).filter(Stock.code == code).first()
+                    if existing:
+                        existing.name = name
+                        existing.stock_type = '货币基金'
+                    else:
+                        stock = Stock(
+                            code=code,
+                            name=name,
+                            market='SH' if code.startswith(('5', '1')) else 'SZ',
+                            stock_type='货币基金'
+                        )
+                        session.add(stock)
+                        added += 1
+
+            if self.cache:
+                self.cache.delete(CacheKeys.stock_list())
+            
+            logger.info(f"同步货币基金列表完成: 新增 {added} 只")
+            return added
+
+        except Exception as e:
+            logger.error(f"同步货币基金列表失败: {e}")
+            return 0
+
+    def sync_fund_list(self) -> int:
+        """同步普通基金（非货币、非ETF）列表到数据库"""
+        if not ENABLE_MYSQL:
+            logger.warning("MySQL is disabled, skipping fund list sync")
+            return 0
+            
+        try:
+            self._apply_delay()
+            df = ak.fund_open_fund_info_em()
+            if df is None or df.empty:
+                logger.warning("获取基金列表失败")
+                return 0
+            
+            from data_source.db.connection import get_db_session
+            from data_source.db.models import Stock
+
+            added = 0
+            with get_db_session() as session:
+                for _, row in df.iterrows():
+                    code = str(row['代码']).zfill(6)
+                    name = str(row['简称'])
+                    
+                    existing = session.query(Stock).filter(Stock.code == code).first()
+                    if existing:
+                        existing.name = name
+                        existing.stock_type = '基金'
+                    else:
+                        stock = Stock(
+                            code=code,
+                            name=name,
+                            market='SH' if code.startswith(('5', '1')) else 'SZ',
+                            stock_type='基金'
+                        )
+                        session.add(stock)
+                        added += 1
+
+            if self.cache:
+                self.cache.delete(CacheKeys.stock_list())
+            
+            logger.info(f"同步基金列表完成: 新增 {added} 只")
+            return added
+
+        except Exception as e:
+            logger.error(f"同步基金列表失败: {e}")
             return 0
 
     def sync_daily_kline(self, code: str, start_date: str = None, end_date: str = None) -> int:
