@@ -16,7 +16,7 @@ class TestBacktestWorkflow:
         from backtest import FundBacktester, BacktestConfig
         from backtest.report_manager import ReportManager
 
-        tester = FundBacktester(data_source='db')
+        tester = FundBacktester(data_source='auto')
         rm = ReportManager()
 
         config = BacktestConfig(

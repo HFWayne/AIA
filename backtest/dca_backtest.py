@@ -116,6 +116,12 @@ class DCABacktest:
         take_profit_count = len(trades[trades['action'] == 'sell_profit'])
         
         strategy_params = {
+            'fund_code': params.fund_code,
+            'fund_name': params.fund_name,
+            'start_date': params.start_date,
+            'end_date': params.end_date,
+            'frequency': params.frequency,
+            'investment_amount': params.investment_amount,
             'enable_stop_loss': params.enable_stop_loss,
             'stop_loss_rate': params.stop_loss_rate,
             'stop_loss_sell_ratio': params.stop_loss_sell_ratio,
