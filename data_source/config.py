@@ -7,9 +7,19 @@ import os
 
 # API 配置
 DATA_SOURCE = "akshare"
-REQUEST_DELAY = 0.3
-MAX_RETRIES = 3
+REQUEST_DELAY = 0.5
+MAX_RETRIES = 5
 AVAILABLE_SOURCES = ["akshare", "tushare", "auto"]
+
+# AkShare 稳定性配置
+AKSHARE_CONFIG = {
+    "request_delay": 1.0,        # 请求间隔（秒）
+    "max_retries": 5,           # 最大重试次数
+    "retry_backoff": 2.0,       # 指数退避基数（失败后延迟时间翻倍）
+    "max_retry_delay": 60,     # 最大重试延迟（秒）
+    "connection_timeout": 30,    # 连接超时（秒）
+    "read_timeout": 60,         # 读取超时（秒）
+}
 
 # 从 apikey.py 导入敏感信息
 try:

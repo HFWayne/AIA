@@ -8,6 +8,7 @@
 
 import logging
 import time
+import random
 import pandas as pd
 from datetime import datetime
 from typing import Optional, List
@@ -18,7 +19,7 @@ from sqlalchemy import text
 
 from data_source.config import (
     DATA_SOURCE, TU_SHARE_TOKEN, REQUEST_DELAY, MAX_RETRIES,
-    AVAILABLE_SOURCES, ENABLE_MYSQL
+    AVAILABLE_SOURCES, ENABLE_MYSQL, AKSHARE_CONFIG
 )
 from data_source.db.connection import get_db_session, get_engine
 from data_source.db.models import Stock, DailyKlineAkShare, DailyKlineTushare
@@ -174,17 +175,82 @@ class FundDataSource:
         end_date: str,
         source: str
     ) -> Optional[pd.DataFrame]:
-        """从 API 获取数据"""
+        """从 API 获取数据，带指数退避重试"""
+        if source == "akshare":
+            return self._fetch_from_akshare_with_retry(fund_code, start_date, end_date)
+        elif source == "tushare":
+            return self._fetch_from_tushare_with_retry(fund_code, start_date, end_date)
+        return None
+
+    def _fetch_from_akshare_with_retry(
+        self,
+        fund_code: str,
+        start_date: str,
+        end_date: str
+    ) -> Optional[pd.DataFrame]:
+        """从 AkShare 获取数据，带指数退避重试"""
+        config = AKSHARE_CONFIG
+        max_retries = config["max_retries"]
+        backoff_base = config["retry_backoff"]
+        max_delay = config["max_retry_delay"]
+        
+        for retry in range(max_retries):
+            try:
+                self._apply_delay_akshare()
+                df = self._get_fund_from_akshare(fund_code, start_date, end_date)
+                if df is not None and not df.empty:
+                    if retry > 0:
+                        logger.info(f"AkShare {fund_code} 重试 {retry} 次后成功")
+                    return df
+            except Exception as e:
+                error_type = self._get_error_type(str(e))
+                if retry < max_retries - 1:
+                    delay = min(backoff_base ** retry + random.uniform(0, 1), max_delay)
+                    logger.warning(
+                        f"AkShare 获取 {fund_code} 失败 (尝试 {retry+1}/{max_retries}): "
+                        f"{error_type}, {delay:.1f}秒后重试..."
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.error(f"AkShare {fund_code} 重试 {max_retries} 次后仍失败: {error_type}")
+        
+        return None
+
+    def _fetch_from_tushare_with_retry(
+        self,
+        fund_code: str,
+        start_date: str,
+        end_date: str
+    ) -> Optional[pd.DataFrame]:
+        """从 Tushare 获取数据，带重试"""
         for retry in range(self.max_retries):
             try:
-                if source == "akshare":
-                    return self._get_fund_from_akshare(fund_code, start_date, end_date)
-                elif source == "tushare":
-                    return self._get_fund_from_tushare(fund_code, start_date, end_date)
+                self._apply_delay()
+                return self._get_fund_from_tushare(fund_code, start_date, end_date)
             except Exception as e:
-                logger.warning(f"从 {source} 获取失败 (retry {retry+1}): {e}")
-                time.sleep(1)
+                logger.warning(f"Tushare 获取 {fund_code} 失败 (retry {retry+1}): {e}")
+                if retry < self.max_retries - 1:
+                    time.sleep(1)
         return None
+
+    def _get_error_type(self, error_msg: str) -> str:
+        """识别错误类型"""
+        error_msg_lower = error_msg.lower()
+        if "connection" in error_msg_lower or "remote" in error_msg_lower:
+            return "连接被断开"
+        elif "timeout" in error_msg_lower or "timed out" in error_msg_lower:
+            return "请求超时"
+        elif "403" in error_msg_lower or "forbidden" in error_msg_lower:
+            return "IP被封禁"
+        elif "429" in error_msg_lower or "too many" in error_msg_lower:
+            return "请求过于频繁"
+        else:
+            return "其他错误"
+
+    def _apply_delay_akshare(self):
+        """AkShare 专用请求延时"""
+        delay = AKSHARE_CONFIG["request_delay"] + random.uniform(0, 0.3)
+        time.sleep(delay)
 
     def _save_to_database(self, fund_code: str, df: pd.DataFrame, source: str):
         """保存数据到本地数据库"""

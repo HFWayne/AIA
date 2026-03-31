@@ -6,13 +6,14 @@ akshare 数据同步服务
 
 import logging
 import time
+import random
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 
 import akshare as ak
 import pandas as pd
 
-from data_source.config import REQUEST_DELAY, SYNC_CONFIG, ENABLE_MYSQL
+from data_source.config import REQUEST_DELAY, SYNC_CONFIG, ENABLE_MYSQL, AKSHARE_CONFIG
 from data_source.cache import get_cache, CacheKeys
 
 logger = logging.getLogger(__name__)
@@ -26,8 +27,30 @@ class AkshareSync:
 
     def _apply_delay(self):
         """请求延时"""
-        if REQUEST_DELAY > 0:
-            time.sleep(REQUEST_DELAY)
+        delay = AKSHARE_CONFIG.get("request_delay", 1.0) + random.uniform(0, 0.3)
+        time.sleep(delay)
+
+    def _retry_with_backoff(self, func, *args, **kwargs):
+        """带指数退避的重试装饰器"""
+        config = AKSHARE_CONFIG
+        max_retries = config.get("max_retries", 5)
+        backoff_base = config.get("retry_backoff", 2.0)
+        max_delay = config.get("max_retry_delay", 60)
+        
+        last_exception = None
+        for retry in range(max_retries):
+            try:
+                self._apply_delay()
+                return func(*args, **kwargs)
+            except Exception as e:
+                last_exception = e
+                if retry < max_retries - 1:
+                    delay = min(backoff_base ** retry + random.uniform(0, 1), max_delay)
+                    logger.warning(f"重试 {retry+1}/{max_retries}, {delay:.1f}秒后重试... ({e})")
+                    time.sleep(delay)
+        
+        logger.error(f"重试 {max_retries} 次后仍失败: {last_exception}")
+        return None
 
     def sync_all_lists(self) -> dict:
         """同步所有列表（股票、ETF、债券、货币基金等）"""
