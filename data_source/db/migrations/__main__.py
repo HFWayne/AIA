@@ -168,10 +168,14 @@ def sync_batch(codes: List[str], source: str = "akshare", start_year: int = 2010
             code_records = 0
             
             for start_date, end_date in year_ranges:
-                df = ds.get_fund_data(code, start_date, end_date)
-                if df is not None and len(df) > 0:
-                    code_records += len(df)
-                time.sleep(0.3)
+                try:
+                    df = ds.get_fund_data(code, start_date, end_date)
+                    if df is not None and len(df) > 0:
+                        code_records += len(df)
+                except Exception as e:
+                    logger.warning(f"  ⚠️ {start_date}~{end_date} 获取失败: {e}")
+                
+                time.sleep(1.0)  # 年份之间延迟1秒
             
             if code_records > 0:
                 success += 1
@@ -184,6 +188,10 @@ def sync_batch(codes: List[str], source: str = "akshare", start_year: int = 2010
         except Exception as e:
             failed += 1
             logger.error(f"❌ {code}: {e}")
+        
+        # 股票之间延迟2秒
+        if i < total:
+            time.sleep(2.0)
     
     logger.info("=" * 50)
     logger.info(f"✅ 批量同步完成!")
