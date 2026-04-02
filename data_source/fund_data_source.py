@@ -120,7 +120,7 @@ class FundDataSource:
         for source in sources:
             df = self._fetch_from_api(fund_code, start_date, end_date, source)
             if df is not None and not df.empty:
-                self._save_to_database(fund_code, df, source)
+                self._save_to_database(fund_code, df, source, start_date, end_date)
                 logger.info(f"从 API({source})获取并存储 {fund_code}: {len(df)} 条")
                 return df
 
@@ -252,7 +252,8 @@ class FundDataSource:
         delay = AKSHARE_CONFIG["request_delay"] + random.uniform(0, 0.3)
         time.sleep(delay)
 
-    def _save_to_database(self, fund_code: str, df: pd.DataFrame, source: str):
+    def _save_to_database(self, fund_code: str, df: pd.DataFrame, source: str, 
+                          start_date: str = None, end_date: str = None):
         """保存数据到本地数据库"""
         if not self._db_available or df is None or df.empty:
             return
