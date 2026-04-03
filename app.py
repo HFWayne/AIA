@@ -5,13 +5,12 @@
 
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
 from datetime import date
 import logging
 
 from backtest import FundBacktester, BacktestConfig
 from backtest.dca_backtest import BacktestResult
-from backtest.visualization import BacktestVisualizer
+from backtest.plotly_visualization import PlotlyVisualizer
 from data_source.config import DATA_SOURCE, AVAILABLE_SOURCES
 from backtest.report_manager import ReportManager
 from backtest.page_watchlist import render_watchlist_manager
@@ -84,11 +83,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-
-plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun', 'Arial']
-plt.rcParams['axes.unicode_minus'] = False
-
 
 st.markdown("""
 <style>
@@ -513,8 +507,11 @@ def sidebar_params():
             enable_yield_boost, yield_boost_trigger, yield_boost_recover, yield_boost_amount)
 
 
-def plot_report_trades(report):
-    """绘制报告的交易曲线"""
+def plot_report_trades_plotly(report):
+    """使用 Plotly 绘制报告的交易曲线"""
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    
     try:
         if report.trades is None or len(report.trades) == 0:
             st.warning(t("empty_no_trades"))
@@ -537,36 +534,63 @@ def plot_report_trades(report):
         st.error(f"Plot error: {str(e)}")
         return None
     
-    fig, axes = plt.subplots(2, 1, figsize=(10, 8), dpi=100)
+    fig = make_subplots(
+        rows=2, cols=1,
+        subplot_titles=(t("chart_title_invest_profit").format(name=report.name), 
+                       t("chart_title_return_trend").format(name=report.name)),
+        vertical_spacing=0.15,
+        row_heights=[0.5, 0.5]
+    )
     
-    ax1 = axes[0]
-    ax1.plot(trades['date'], trades['total_invested'], label=t("label_total_invested"), color='blue', linewidth=2)
-    ax1.plot(trades['date'], trades['portfolio_value'], label=t("label_portfolio_value"), color='green', linewidth=2)
-    ax1.fill_between(trades['date'], trades['total_invested'], trades['portfolio_value'],
-                    where=trades['portfolio_value'] >= trades['total_invested'],
-                    alpha=0.3, color='green', label=t("label_profit"))
-    ax1.fill_between(trades['date'], trades['total_invested'], trades['portfolio_value'],
-                    where=trades['portfolio_value'] < trades['total_invested'],
-                    alpha=0.3, color='red', label=t("label_loss"))
-    ax1.set_title(t("chart_title_invest_profit").format(name=report.name), fontsize=12)
-    ax1.set_xlabel(t("label_date"))
-    ax1.set_ylabel(t("label_amount"))
-    ax1.legend(loc='upper left')
-    ax1.grid(True, alpha=0.3)
+    fig.add_trace(
+        go.Scatter(
+            x=trades['date'],
+            y=trades['total_invested'],
+            name=t("label_total_invested"),
+            line=dict(color='blue', width=2),
+            hovertemplate='%{x|%Y-%m-%d}<br>' + t("label_total_invested") + ': ¥%{y:,.0f}<extra></extra>'
+        ),
+        row=1, col=1
+    )
     
-    ax2 = axes[1]
-    ax2.plot(trades['date'], trades['return_rate'], color='purple', linewidth=2)
-    ax2.axhline(y=0, color='black', linestyle='--', alpha=0.5)
-    ax2.fill_between(trades['date'], 0, trades['return_rate'],
-                     where=trades['return_rate'] >= 0, alpha=0.3, color='green')
-    ax2.fill_between(trades['date'], 0, trades['return_rate'],
-                     where=trades['return_rate'] < 0, alpha=0.3, color='red')
-    ax2.set_title(t("chart_title_return_trend").format(name=report.name), fontsize=12)
-    ax2.set_xlabel(t("label_date"))
-    ax2.set_ylabel(t("label_return_rate"))
-    ax2.grid(True, alpha=0.3)
+    fig.add_trace(
+        go.Scatter(
+            x=trades['date'],
+            y=trades['portfolio_value'],
+            name=t("label_portfolio_value"),
+            line=dict(color='green', width=2),
+            fill='tonexty',
+            fillcolor='rgba(0, 200, 0, 0.1)',
+            hovertemplate='%{x|%Y-%m-%d}<br>' + t("label_portfolio_value") + ': ¥%{y:,.0f}<extra></extra>'
+        ),
+        row=1, col=1
+    )
     
-    plt.tight_layout()
+    fig.add_trace(
+        go.Scatter(
+            x=trades['date'],
+            y=trades['return_rate'],
+            name=t("label_return_rate"),
+            line=dict(color='purple', width=2),
+            fill='tozeroy',
+            fillcolor='rgba(128, 0, 128, 0.2)',
+            hovertemplate='%{x|%Y-%m-%d}<br>' + t("label_return_rate") + ': %{y:.2f}%<extra></extra>'
+        ),
+        row=2, col=1
+    )
+    
+    fig.update_layout(
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        hovermode='x unified',
+        height=600,
+        template='plotly_white'
+    )
+    
+    fig.update_yaxes(title_text=t("label_amount"), gridcolor='#f0f0f0', row=1, col=1)
+    fig.update_yaxes(title_text=t("label_return_rate"), gridcolor='#f0f0f0', row=2, col=1)
+    fig.update_xaxes(title_text=t("label_date"), tickformat='%Y-%m', dtick='M3', row=2, col=1)
+    
     return fig
 
 
@@ -683,9 +707,9 @@ def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, 
                 st.success(t("msg_report_saved").format(id=st.session_state['last_save_id']))
             
             st.markdown("---")
-            visualizer = BacktestVisualizer()
+            visualizer = PlotlyVisualizer()
             fig = visualizer.plot_single_fund(current_result, current_fund_name)
-            st.pyplot(fig)
+            st.plotly_chart(fig, use_container_width=True)
             
             with st.expander(t("trades_title"), expanded=False):
                 trades_display = current_result.trades.copy()
@@ -810,9 +834,9 @@ def page_compare(sd2, ed2, amt2, esl, slr, etp, tpr, mdt, tpsr, ds):
                     st.dataframe(comp_df, width='stretch', hide_index=True)
                     
                     st.markdown("")
-                    visualizer = BacktestVisualizer()
+                    visualizer = PlotlyVisualizer()
                     fig = visualizer.plot_comparison(results)
-                    st.pyplot(fig)
+                    st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.error(t("error_data_fetch_failed"))
                     with st.expander(t("troubleshoot_title")):
@@ -909,9 +933,9 @@ def page_reports():
                                 
                                 render_report_metrics(loaded_report)
                                 
-                                fig = plot_report_trades(loaded_report)
+                                fig = plot_report_trades_plotly(loaded_report)
                                 if fig is not None:
-                                    st.pyplot(fig)
+                                    st.plotly_chart(fig, use_container_width=True)
                                 
                                 col_d, col_e = st.columns(2)
                                 with col_d:
@@ -973,9 +997,9 @@ def page_reports():
                 render_report_metrics(report)
                 
                 st.markdown("")
-                fig = plot_report_trades(report)
+                fig = plot_report_trades_plotly(report)
                 if fig is not None:
-                    st.pyplot(fig)
+                    st.plotly_chart(fig, use_container_width=True)
                 
                 col_del, col_exp, col_trades = st.columns([1, 1, 4])
                 with col_del:
@@ -1053,52 +1077,17 @@ def page_reports():
                 
                 st.markdown("")
                 
-                fig, axes = plt.subplots(2, 2, figsize=(14, 10), dpi=100)
-                
                 names = [r.name for r in valid_reports]
-                
-                ax1 = axes[0, 0]
-                x = range(len(names))
                 invested = [r.result['total_invested'] for r in valid_reports]
                 final = [r.result['final_value'] for r in valid_reports]
-                width = 0.35
-                ax1.bar([i - width/2 for i in x], invested, width, label=t("label_total_invested_en"), color='steelblue')
-                ax1.bar([i + width/2 for i in x], final, width, label=t("label_final_value"), color='coral')
-                ax1.set_xticks(x)
-                ax1.set_xticklabels(names, rotation=15)
-                ax1.set_ylabel('Amount (CNY)')
-                ax1.set_title(t("chart_investment_value"))
-                ax1.legend()
-                ax1.grid(True, alpha=0.3)
-                
-                ax2 = axes[0, 1]
                 returns = [r.result['return_rate'] for r in valid_reports]
-                colors = ['green' if r >= 0 else 'red' for r in returns]
-                ax2.bar(names, returns, color=colors)
-                ax2.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
-                ax2.set_ylabel('Return Rate (%)')
-                ax2.set_title(t("chart_return_comparison"))
-                ax2.grid(True, alpha=0.3)
-                for i, v in enumerate(returns):
-                    ax2.text(i, v + 1 if v >= 0 else v - 3, f'{v:.1f}%', ha='center', fontsize=9)
-                
-                ax3 = axes[1, 0]
                 annual = [r.result['annual_return'] for r in valid_reports]
-                colors = ['green' if r >= 0 else 'red' for r in annual]
-                ax3.bar(names, annual, color=colors)
-                ax3.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
-                ax3.set_ylabel('Annual Return (%)')
-                ax3.set_title(t("chart_annual_return"))
-                ax3.grid(True, alpha=0.3)
-                
-                ax4 = axes[1, 1]
                 drawdowns = [r.result['max_drawdown'] for r in valid_reports]
-                ax4.barh(names, drawdowns, color='orange')
-                ax4.set_xlabel('Max Drawdown (%)')
-                ax4.set_title(t("chart_max_drawdown"))
                 
-                plt.tight_layout()
-                st.pyplot(fig)
+                fig = PlotlyVisualizer.plot_portfolio_comparison(
+                    names, invested, final, returns, annual, drawdowns
+                )
+                st.plotly_chart(fig, use_container_width=True)
                 
                 st.markdown("")
                 from backtest.report_exporter import MultiReportExporter
