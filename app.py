@@ -321,7 +321,18 @@ NAME_MAP = {
 
 
 def get_fund_name(code: str) -> str:
-    return NAME_MAP.get(code, code)
+    if code in NAME_MAP:
+        return NAME_MAP[code]
+    try:
+        from data_source.db.connection import get_db_session
+        from data_source.db.models import Stock
+        with get_db_session() as session:
+            stock = session.query(Stock).filter(Stock.code == code).first()
+            if stock and stock.name:
+                return stock.name
+    except Exception:
+        pass
+    return code
 
 
 def get_report_manager():
