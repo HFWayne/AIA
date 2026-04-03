@@ -328,8 +328,10 @@ def get_fund_name(code: str) -> str:
         from data_source.db.models import Stock
         with get_db_session() as session:
             stock = session.query(Stock).filter(Stock.code == code).first()
-            if stock and stock.name:
-                return stock.name
+            if stock is not None:
+                name = stock.name
+                if name is not None and str(name).strip():
+                    return str(name).strip()
     except Exception:
         pass
     return code
@@ -425,72 +427,6 @@ def sidebar_params():
                                t("weekday_friday"): 4}
             day_of_week = day_of_week_map[day_of_week_str]
     
-    with st.sidebar.expander(t("expander_stop_loss"), expanded=False):
-        enable_stop_loss = st.checkbox(t("sidebar_enable_stop_loss"), value=False)
-        
-        stop_loss_rate = 0.15
-        stop_loss_sell_ratio = 1.0
-        if enable_stop_loss:
-            stop_loss_rate = st.slider(t("sidebar_stop_loss_rate"), min_value=5, max_value=30, value=15) / 100
-            stop_loss_sell_ratio = st.slider(t("sidebar_stop_loss_ratio"), min_value=50, max_value=100, value=100) / 100
-    
-    with st.sidebar.expander(t("expander_take_profit"), expanded=False):
-        enable_take_profit = st.checkbox(t("sidebar_enable_take_profit"), value=False)
-        
-        take_profit_rate = 0.20
-        max_drawdown_threshold = 0.10
-        take_profit_sell_ratio = 0.5
-        if enable_take_profit:
-            take_profit_rate = st.slider(t("sidebar_take_profit_rate"), min_value=5, max_value=50, value=20) / 100
-            max_drawdown_threshold = st.slider(t("sidebar_max_drawdown_threshold"), min_value=5, max_value=30, value=10) / 100
-            take_profit_sell_ratio = st.slider(t("sidebar_sell_ratio"), min_value=10, max_value=100, value=50) / 100
-    
-    with st.sidebar.expander(t("expander_dip_buy"), expanded=False):
-        enable_dip_buy = st.checkbox(t("sidebar_enable_dip_buy"), value=False)
-        dip_buy_tier1_threshold = -0.03
-        dip_buy_tier1_amount = 1000.0
-        dip_buy_tier2_threshold = -0.05
-        dip_buy_tier2_amount = 1000.0
-        dip_buy_tier3_threshold = -0.07
-        dip_buy_tier3_amount = 1000.0
-        
-        if enable_dip_buy:
-            col1, col2 = st.columns(2)
-            with col1:
-                st.write(f"{t('dip_tier_label')}1: {t('dip_fall_label')}")
-                st.write(f"{t('dip_tier_label')}2: {t('dip_fall_label')}")
-                st.write(f"{t('dip_tier_label')}3: {t('dip_fall_label')}")
-            with col2:
-                tier1 = st.selectbox("t1", [t("dip_3pct"), t("dip_5pct"), t("dip_7pct")], index=0, key="dip1")
-                tier2 = st.selectbox("t2", [t("dip_3pct"), t("dip_5pct"), t("dip_7pct")], index=1, key="dip2")
-                tier3 = st.selectbox("t3", [t("dip_3pct"), t("dip_5pct"), t("dip_7pct")], index=2, key="dip3")
-                tier_map = {t("dip_3pct"): -0.03, t("dip_5pct"): -0.05, t("dip_7pct"): -0.07}
-                dip_buy_tier1_threshold = tier_map.get(tier1, -0.03)
-                dip_buy_tier2_threshold = tier_map.get(tier2, -0.05)
-                dip_buy_tier3_threshold = tier_map.get(tier3, -0.07)
-            
-            col3, col4 = st.columns(2)
-            with col3:
-                st.write(t("dip_amount_label"))
-            with col4:
-                dip_buy_tier1_amount = st.number_input("1", min_value=100, value=1000, step=100, key="dip_amt1")
-                dip_buy_tier2_amount = st.number_input("2", min_value=100, value=1000, step=100, key="dip_amt2")
-                dip_buy_tier3_amount = st.number_input("3", min_value=100, value=1000, step=100, key="dip_amt3")
-    
-    with st.sidebar.expander(t("expander_yield_boost"), expanded=False):
-        enable_yield_boost = st.checkbox(t("sidebar_enable_yield_boost"), value=False)
-        yield_boost_trigger = -0.20
-        yield_boost_recover = -0.10
-        yield_boost_amount = 1000.0
-        
-        if enable_yield_boost:
-            yield_boost_trigger = st.slider(t("sidebar_trigger_threshold"), min_value=-30, max_value=-5, value=-20) / 100
-            yield_boost_amount = st.number_input(t("sidebar_boost_amount"), min_value=100, value=1000, step=100)
-            yield_boost_recover = st.slider(t("sidebar_recover_threshold"), min_value=-30, max_value=-5, value=-10) / 100
-            
-            if yield_boost_recover >= yield_boost_trigger:
-                st.error(t("error_recovery_threshold"))
-    
     with st.sidebar.expander(t("expander_data_source"), expanded=False):
         default_idx = AVAILABLE_SOURCES.index(DATA_SOURCE) if DATA_SOURCE in AVAILABLE_SOURCES else 0
         data_source = st.selectbox(t("sidebar_select_source"), AVAILABLE_SOURCES, index=default_idx)
@@ -509,13 +445,7 @@ def sidebar_params():
     </div>
     """, unsafe_allow_html=True)
     
-    return (start_date, end_date, amount, frequency, day_of_month, day_of_week, data_source,
-            enable_stop_loss, stop_loss_rate, stop_loss_sell_ratio,
-            enable_take_profit, take_profit_rate, max_drawdown_threshold, take_profit_sell_ratio,
-            enable_dip_buy, dip_buy_tier1_threshold, dip_buy_tier1_amount,
-            dip_buy_tier2_threshold, dip_buy_tier2_amount,
-            dip_buy_tier3_threshold, dip_buy_tier3_amount,
-            enable_yield_boost, yield_boost_trigger, yield_boost_recover, yield_boost_amount)
+    return (start_date, end_date, amount, frequency, day_of_month, day_of_week, data_source)
 
 
 def plot_report_trades_plotly(report):
@@ -605,45 +535,218 @@ def plot_report_trades_plotly(report):
     return fig
 
 
-def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, slr, slsr, etp, tpr, mdt, tpsr,
-                        edb, dt1, da1, dt2, da2, dt3, da3, eyb, ybt, ybr, yba):
-    """单股票回测页面"""
-    st.markdown(f'<div class="section-header">{t("page_single_backtest")}</div>', unsafe_allow_html=True)
+def render_strategy_section(sm, key_prefix: str = "strategy"):
+    """渲染策略选择器组件"""
+    strategy_options = {s.id: s.name for s in sm.list_strategies()}
+    strategy_options["__custom__"] = "自定义参数"
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        selected_strategy_id = st.selectbox(
+            "选择策略",
+            options=list(strategy_options.keys()),
+            format_func=lambda x: strategy_options.get(x, x),
+            key=f"{key_prefix}_selector"
+        )
+    
+    with col2:
+        st.write("")
+        if st.button("+ 新建策略", key=f"{key_prefix}_new", use_container_width=True):
+            st.session_state[f'{key_prefix}_show_editor'] = True
+    
+    params = None
+    strategy_name = None
+    
+    if selected_strategy_id != "__custom__" and selected_strategy_id in strategy_options:
+        strategy = sm.get_strategy(selected_strategy_id)
+        if strategy:
+            params = strategy.params
+            strategy_name = strategy.name
+    
+    show_details = st.checkbox("显示参数详情", value=False, key=f"{key_prefix}_show_details")
+    
+    if show_details:
+        with st.expander("策略参数详情", expanded=True):
+            if params is None:
+                params = render_strategy_params_form(key_prefix)
+            else:
+                st.info(f"当前策略: {strategy_name}")
+                st.json(params.to_dict())
+    
+    if params is None:
+        params = render_strategy_params_form(key_prefix)
+    
+    col_save, col_space = st.columns([1, 3])
+    with col_save:
+        if st.button("💾 保存为策略", key=f"{key_prefix}_save", use_container_width=True):
+            st.session_state[f'{key_prefix}_show_save_dialog'] = True
+    
+    if st.session_state.get(f'{key_prefix}_show_save_dialog', False):
+        with st.form(f"{key_prefix}_save_form"):
+            st.markdown("### 保存策略")
+            new_name = st.text_input("策略名称", key=f"{key_prefix}_save_name")
+            new_group = st.selectbox("策略分组", ["我的策略", "保守型", "激进型", "增强型"], key=f"{key_prefix}_save_group")
+            new_desc = st.text_area("策略描述", key=f"{key_prefix}_save_desc")
+            
+            col_submit, col_cancel = st.columns(2)
+            with col_submit:
+                submitted = st.form_submit_button("保存", use_container_width=True)
+            with col_cancel:
+                if st.form_submit_button("取消", use_container_width=True):
+                    st.session_state[f'{key_prefix}_show_save_dialog'] = False
+                    st.rerun()
+            
+            if submitted and new_name:
+                new_strategy = sm.create_strategy(
+                    name=new_name,
+                    group=new_group,
+                    description=new_desc,
+                    params=params
+                )
+                st.success(f"策略 '{new_name}' 已保存!")
+                st.session_state[f'{key_prefix}_show_save_dialog'] = False
+                st.session_state[f'{key_prefix}_selector'] = new_strategy.id
+                st.rerun()
+    
+    return params, strategy_name
+
+
+def render_strategy_params_form(key_prefix: str = "strategy"):
+    """渲染策略参数表单，返回 StrategyParams"""
+    from backtest.strategy_manager import StrategyParams
+    
+    with st.expander("策略参数设置", expanded=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**止损设置**")
+            enable_stop_loss = st.checkbox("启用止损", value=False, key=f"{key_prefix}_esl")
+            stop_loss_rate = 0.15
+            stop_loss_sell_ratio = 1.0
+            if enable_stop_loss:
+                stop_loss_rate = st.slider("止损阈值", 5, 30, 15, key=f"{key_prefix}_slr") / 100
+                stop_loss_sell_ratio = st.slider("止损卖出比例", 50, 100, 100, key=f"{key_prefix}_slsr") / 100
+            
+            st.markdown("**止盈设置**")
+            enable_take_profit = st.checkbox("启用止盈", value=False, key=f"{key_prefix}_etp")
+            take_profit_rate = 0.20
+            max_drawdown_threshold = 0.10
+            take_profit_sell_ratio = 0.5
+            if enable_take_profit:
+                take_profit_rate = st.slider("止盈阈值", 5, 50, 20, key=f"{key_prefix}_tpr") / 100
+                max_drawdown_threshold = st.slider("最大回撤阈值", 5, 30, 10, key=f"{key_prefix}_mdt") / 100
+                take_profit_sell_ratio = st.slider("止盈卖出比例", 10, 100, 50, key=f"{key_prefix}_tpsr") / 100
+        
+        with col2:
+            st.markdown("**补仓设置**")
+            enable_dip_buy = st.checkbox("启用补仓", value=False, key=f"{key_prefix}_edb")
+            dip_buy_tier1_threshold = -0.03
+            dip_buy_tier1_amount = 1000.0
+            dip_buy_tier2_threshold = -0.05
+            dip_buy_tier2_amount = 1000.0
+            dip_buy_tier3_threshold = -0.07
+            dip_buy_tier3_amount = 1000.0
+            
+            if enable_dip_buy:
+                tier1_opt = st.selectbox("一档跌幅", [-3, -5, -7], index=0, key=f"{key_prefix}_dt1",
+                                        format_func=lambda x: f"{x}%")
+                tier2_opt = st.selectbox("二档跌幅", [-3, -5, -7], index=1, key=f"{key_prefix}_dt2",
+                                        format_func=lambda x: f"{x}%")
+                tier3_opt = st.selectbox("三档跌幅", [-3, -5, -7], index=2, key=f"{key_prefix}_dt3",
+                                        format_func=lambda x: f"{x}%")
+                dip_buy_tier1_threshold = tier1_opt / 100
+                dip_buy_tier2_threshold = tier2_opt / 100
+                dip_buy_tier3_threshold = tier3_opt / 100
+                
+                dip_buy_tier1_amount = st.number_input("一档补仓金额", 100, 10000, 1000, 100, key=f"{key_prefix}_da1")
+                dip_buy_tier2_amount = st.number_input("二档补仓金额", 100, 10000, 1000, 100, key=f"{key_prefix}_da2")
+                dip_buy_tier3_amount = st.number_input("三档补仓金额", 100, 10000, 1000, 100, key=f"{key_prefix}_da3")
+            
+            st.markdown("**收益增强设置**")
+            enable_yield_boost = st.checkbox("启用收益增强", value=False, key=f"{key_prefix}_eyb")
+            yield_boost_trigger = -0.20
+            yield_boost_recover = -0.10
+            yield_boost_amount = 1000.0
+            
+            if enable_yield_boost:
+                yield_boost_trigger = st.slider("触发阈值", -30, -5, -20, key=f"{key_prefix}_ybt") / 100
+                yield_boost_amount = st.number_input("增强金额", 100, 10000, 1000, 100, key=f"{key_prefix}_yba")
+                yield_boost_recover = st.slider("恢复阈值", -30, -5, -10, key=f"{key_prefix}_ybr") / 100
+                
+                if yield_boost_recover >= yield_boost_trigger:
+                    st.error("恢复阈值必须小于触发阈值")
+    
+    return StrategyParams(
+        frequency="monthly",
+        day_of_month=1,
+        day_of_week=0,
+        investment_amount=1000.0,
+        enable_stop_loss=enable_stop_loss,
+        stop_loss_rate=stop_loss_rate,
+        stop_loss_sell_ratio=stop_loss_sell_ratio,
+        enable_take_profit=enable_take_profit,
+        take_profit_rate=take_profit_rate,
+        max_drawdown_threshold=max_drawdown_threshold,
+        take_profit_sell_ratio=take_profit_sell_ratio,
+        enable_dip_buy=enable_dip_buy,
+        dip_buy_tier1_threshold=dip_buy_tier1_threshold,
+        dip_buy_tier1_amount=dip_buy_tier1_amount,
+        dip_buy_tier2_threshold=dip_buy_tier2_threshold,
+        dip_buy_tier2_amount=dip_buy_tier2_amount,
+        dip_buy_tier3_threshold=dip_buy_tier3_threshold,
+        dip_buy_tier3_amount=dip_buy_tier3_amount,
+        enable_yield_boost=enable_yield_boost,
+        yield_boost_trigger=yield_boost_trigger,
+        yield_boost_recover=yield_boost_recover,
+        yield_boost_amount=yield_boost_amount
+    )
+
+
+def page_single_backtest_tab1(sd, ed, amt, freq, day_of_month, day_of_week, ds):
+    """单股票回测 Tab 1: 单策略回测"""
+    from backtest.strategy_manager import StrategyManager
+    
+    sm = StrategyManager()
     
     col1, col2 = st.columns([1, 2.5])
     
     with col1:
-        with st.container():
-            st.markdown(f"""
-            <div class="card">
-                <h4>{t("stock_selection")}</h4>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            fund_code = st.text_input(t("stock_code"), value="600036", help=t("stock_code_help"))
-            fund_name = st.text_input(t("stock_name"), value="", help=t("stock_name_help"))
-            
-            if not fund_name:
-                fund_name = get_fund_name(fund_code)
-            
-            st.markdown(f"""
-            <div style="background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%); 
-                        padding: 1rem; border-radius: 10px; margin: 1rem 0;">
-                <strong>{t("current_selection")}:</strong> {fund_name} ({fund_code})
-            </div>
-            """, unsafe_allow_html=True)
-            
-            st.markdown("")
-            run_btn = st.button(t("btn_start_backtest"), type="primary", use_container_width=True)
+        st.markdown("""
+        <div class="card">
+            <h4>股票选择</h4>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        fund_code = st.text_input("股票代码", value="600036", key="single_fund_code")
+        fund_name_input = st.text_input("股票名称", value="", key="single_fund_name", help="留空自动获取")
+        
+        if not fund_name_input:
+            fund_name_input = get_fund_name(fund_code)
+        
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%); 
+                    padding: 1rem; border-radius: 10px; margin: 1rem 0;">
+            <strong>当前选择:</strong> {fund_name_input} ({fund_code})
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+        st.markdown("### 策略设置")
+        
+        params, strategy_name = render_strategy_section(sm, key_prefix="single")
+        
+        st.markdown("")
+        run_btn = st.button("🚀 开始回测", type="primary", use_container_width=True)
     
     with col2:
         if run_btn:
-            with st.spinner(t("spinner_fetching_data")):
+            with st.spinner("正在获取数据..."):
                 tester = FundBacktester(data_source=ds)
                 
                 config = BacktestConfig(
                     fund_code=fund_code,
-                    fund_name=fund_name,
+                    fund_name=fund_name_input,
                     start_date=str(sd),
                     end_date=str(ed),
                     investment_amount=amt,
@@ -651,24 +754,24 @@ def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, 
                     day_of_month=day_of_month,
                     day_of_week=day_of_week,
                     data_source=ds,
-                    enable_stop_loss=esl,
-                    stop_loss_rate=slr,
-                    stop_loss_sell_ratio=slsr,
-                    enable_take_profit=etp,
-                    take_profit_rate=tpr,
-                    max_drawdown_threshold=mdt,
-                    take_profit_sell_ratio=tpsr,
-                    enable_dip_buy=edb,
-                    dip_buy_tier1_threshold=dt1,
-                    dip_buy_tier1_amount=da1,
-                    dip_buy_tier2_threshold=dt2,
-                    dip_buy_tier2_amount=da2,
-                    dip_buy_tier3_threshold=dt3,
-                    dip_buy_tier3_amount=da3,
-                    enable_yield_boost=eyb,
-                    yield_boost_trigger=ybt,
-                    yield_boost_recover=ybr,
-                    yield_boost_amount=yba
+                    enable_stop_loss=params.enable_stop_loss,
+                    stop_loss_rate=params.stop_loss_rate,
+                    stop_loss_sell_ratio=params.stop_loss_sell_ratio,
+                    enable_take_profit=params.enable_take_profit,
+                    take_profit_rate=params.take_profit_rate,
+                    max_drawdown_threshold=params.max_drawdown_threshold,
+                    take_profit_sell_ratio=params.take_profit_sell_ratio,
+                    enable_dip_buy=params.enable_dip_buy,
+                    dip_buy_tier1_threshold=params.dip_buy_tier1_threshold,
+                    dip_buy_tier1_amount=params.dip_buy_tier1_amount,
+                    dip_buy_tier2_threshold=params.dip_buy_tier2_threshold,
+                    dip_buy_tier2_amount=params.dip_buy_tier2_amount,
+                    dip_buy_tier3_threshold=params.dip_buy_tier3_threshold,
+                    dip_buy_tier3_amount=params.dip_buy_tier3_amount,
+                    enable_yield_boost=params.enable_yield_boost,
+                    yield_boost_trigger=params.yield_boost_trigger,
+                    yield_boost_recover=params.yield_boost_recover,
+                    yield_boost_amount=params.yield_boost_amount
                 )
                 
                 result = tester.single_fund(config)
@@ -676,30 +779,22 @@ def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, 
                 if result:
                     result.strategy_params = {
                         'fund_code': fund_code,
-                        'fund_name': fund_name,
+                        'fund_name': fund_name_input,
                         'start_date': str(sd),
                         'end_date': str(ed),
-                        'frequency': freq,
-                        'day_of_month': day_of_month,
-                        'day_of_week': day_of_week,
-                        'enable_stop_loss': esl,
-                        'stop_loss_rate': slr,
-                        'stop_loss_sell_ratio': slsr,
-                        'enable_take_profit': etp,
-                        'take_profit_rate': tpr,
-                        'max_drawdown_threshold': mdt,
-                        'take_profit_sell_ratio': tpsr,
-                        'enable_dip_buy': edb,
-                        'enable_yield_boost': eyb
+                        'strategy_name': strategy_name or "自定义",
+                        **params.to_dict()
                     }
                     st.session_state['current_result'] = result
-                    st.session_state['current_fund_name'] = fund_name
+                    st.session_state['current_fund_name'] = fund_name_input
+                    st.session_state['current_strategy_name'] = strategy_name
         
         current_result = st.session_state.get('current_result')
-        current_fund_name = st.session_state.get('current_fund_name', fund_name)
+        current_fund_name = st.session_state.get('current_fund_name', fund_code)
+        current_strategy_name = st.session_state.get('current_strategy_name', '自定义')
         
         if current_result:
-            st.success(t("msg_backtest_complete").format(name=current_fund_name))
+            st.success(f"✅ 回测完成 - {current_fund_name} (策略: {current_strategy_name})")
             
             st.markdown("")
             render_metrics(current_result)
@@ -707,7 +802,7 @@ def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, 
             
             col_save1, col_save2 = st.columns([1, 3])
             with col_save1:
-                if st.button(t("btn_save_report"), key="save_report_btn", use_container_width=True):
+                if st.button("💾 保存报告", key="save_single_report", use_container_width=True):
                     rm = get_report_manager()
                     report_id = rm.save_report(current_result)
                     st.session_state['last_save_id'] = report_id
@@ -715,14 +810,14 @@ def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, 
                     st.rerun()
             
             if 'last_save_id' in st.session_state:
-                st.success(t("msg_report_saved").format(id=st.session_state['last_save_id']))
+                st.success(f"报告已保存，ID: {st.session_state['last_save_id']}")
             
             st.markdown("---")
             visualizer = PlotlyVisualizer()
-            fig = visualizer.plot_single_fund(current_result, current_fund_name)
+            fig = visualizer.plot_single_fund(current_result, f"{current_fund_name} - {current_strategy_name}")
             st.plotly_chart(fig, use_container_width=True)
             
-            with st.expander(t("trades_title"), expanded=False):
+            with st.expander("交易明细", expanded=False):
                 trades_display = current_result.trades.copy()
                 trades_display['date'] = pd.to_datetime(trades_display['date']).astype(str).str[:10]
                 
@@ -730,114 +825,266 @@ def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds, esl, 
                 if 'invest_amount' in trades_display.columns:
                     display_cols.insert(5, 'invest_amount')
                 
-                trades_display = trades_display[display_cols].copy()
+                trades_display = trades_display[[c for c in display_cols if c in trades_display.columns]].copy()
                 trades_display.columns = [t("col_date"), t("col_action"), t("col_nav"), t("col_shares_change"), 
                                         t("col_total_shares"), t("col_invest_amount"), t("col_portfolio_value"), 
-                                        t("col_return_rate"), t("col_reason")]
-                trades_display[t("col_shares_change")] = trades_display[t("col_shares_change")].round(2)
-                if t("col_invest_amount") in trades_display.columns:
-                    trades_display[t("col_invest_amount")] = trades_display[t("col_invest_amount")].round(0).astype(int)
-                trades_display[t("col_total_shares")] = trades_display[t("col_total_shares")].round(2)
-                trades_display[t("col_portfolio_value")] = trades_display[t("col_portfolio_value")].round(0).astype(int)
+                                        t("col_return_rate"), t("col_reason")][:len(trades_display.columns)]
                 st.dataframe(trades_display, width='stretch', height=300, hide_index=True)
         elif run_btn:
-            st.error(t("error_data_fetch_failed"))
-            with st.expander(t("troubleshoot_title")):
-                st.markdown(f"""
-                **{t("troubleshoot_possible_causes")}**
-                1. **{t("cause_wrong_code")}**
-                2. **{t("cause_no_permission")}**
-                3. **{t("cause_network_error")}**
-                4. **{t("cause_data_not_synced")}**
-                
-                **{t("troubleshoot_suggestions")}**
-                - {t("suggest_change_code")}
-                - {t("suggest_change_source")}
-                - {t("suggest_sync_data")}
-                """)
+            st.error("数据获取失败，请检查股票代码或数据源")
+
+
+def page_single_backtest_tab2(sd, ed, amt, freq, day_of_month, day_of_week, ds):
+    """单股票回测 Tab 2: 策略对比"""
+    from backtest.strategy_manager import StrategyManager
+    
+    sm = StrategyManager()
+    strategies = sm.list_strategies()
+    
+    col1, col2 = st.columns([1, 2.5])
+    
+    with col1:
+        st.markdown("""
+        <div class="card">
+            <h4>策略对比</h4>
+            <p>对比多个策略在同一股票上的表现</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        fund_code = st.text_input("股票代码", value="600036", key="compare_fund_code")
+        fund_name_input = st.text_input("股票名称", value="", key="compare_fund_name")
+        
+        if not fund_name_input:
+            fund_name_input = get_fund_name(fund_code)
+        
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%); 
+                    padding: 1rem; border-radius: 10px; margin: 1rem 0;">
+            <strong>股票:</strong> {fund_name_input} ({fund_code})
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+        st.markdown("### 选择要对比的策略")
+        
+        if strategies:
+            strategy_names = [s.name for s in strategies]
+            selected_indices = st.multiselect(
+                "选择策略（可多选）",
+                options=range(len(strategies)),
+                default=[0] if len(strategies) > 0 else [],
+                format_func=lambda x: strategy_names[x]
+            )
+            selected_strategies = [strategies[i] for i in selected_indices]
         else:
-            st.markdown(f"""
-            <div class="empty-state">
-                <h3>{t("empty_state_hint")}</h3>
-            </div>
-            """, unsafe_allow_html=True)
+            st.warning("暂无策略，请先创建策略")
+            selected_strategies = []
+        
+        st.markdown("")
+        run_btn = st.button("🚀 开始对比", type="primary", use_container_width=True)
+    
+    with col2:
+        if run_btn and selected_strategies:
+            results = {}
+            progress_bar = st.progress(0)
+            status_text = st.empty()
             
-            st.markdown("---")
-            st.markdown(f"### {t('quick_codes')}")
+            for i, strategy in enumerate(selected_strategies):
+                status_text.text(f"正在回测: {strategy.name}...")
+                
+                tester = FundBacktester(data_source=ds)
+                params = strategy.params
+                
+                config = BacktestConfig(
+                    fund_code=fund_code,
+                    fund_name=fund_name_input,
+                    start_date=str(sd),
+                    end_date=str(ed),
+                    investment_amount=amt,
+                    frequency=freq,
+                    day_of_month=day_of_month,
+                    day_of_week=day_of_week,
+                    data_source=ds,
+                    enable_stop_loss=params.enable_stop_loss,
+                    stop_loss_rate=params.stop_loss_rate,
+                    stop_loss_sell_ratio=params.stop_loss_sell_ratio,
+                    enable_take_profit=params.enable_take_profit,
+                    take_profit_rate=params.take_profit_rate,
+                    max_drawdown_threshold=params.max_drawdown_threshold,
+                    take_profit_sell_ratio=params.take_profit_sell_ratio,
+                    enable_dip_buy=params.enable_dip_buy,
+                    dip_buy_tier1_threshold=params.dip_buy_tier1_threshold,
+                    dip_buy_tier1_amount=params.dip_buy_tier1_amount,
+                    dip_buy_tier2_threshold=params.dip_buy_tier2_threshold,
+                    dip_buy_tier2_amount=params.dip_buy_tier2_amount,
+                    dip_buy_tier3_threshold=params.dip_buy_tier3_threshold,
+                    dip_buy_tier3_amount=params.dip_buy_tier3_amount,
+                    enable_yield_boost=params.enable_yield_boost,
+                    yield_boost_trigger=params.yield_boost_trigger,
+                    yield_boost_recover=params.yield_boost_recover,
+                    yield_boost_amount=params.yield_boost_amount
+                )
+                
+                result = tester.single_fund(config)
+                if result:
+                    results[strategy.name] = result
+                
+                progress_bar.progress((i + 1) / len(selected_strategies))
             
-            quick_codes = [
-                ("600036", t("quick_stock_600036")),
-                ("601318", t("quick_stock_601318")),
-                ("600519", t("quick_stock_600519")),
-                ("000858", t("quick_stock_000858")),
-                ("510300", t("quick_stock_510300")),
-                ("510500", t("quick_stock_510500")),
-            ]
+            status_text.text("对比完成!")
             
-            cols = st.columns(3)
-            for i, (code, name) in enumerate(quick_codes):
-                with cols[i % 3]:
-                    st.code(f"{code} - {name}")
+            if results:
+                st.success(f"✅ 策略对比完成 - {fund_name_input}")
+                
+                st.markdown("---")
+                st.markdown("### 对比结果")
+                
+                comparison_data = []
+                for name, result in results.items():
+                    comparison_data.append({
+                        "策略": name,
+                        "总投入": f"¥{result.total_invested:,.0f}",
+                        "最终价值": f"¥{result.final_value:,.0f}",
+                        "总收益率": f"{result.return_rate:+.2f}%",
+                        "年化收益": f"{result.annual_return:+.2f}%",
+                        "最大回撤": f"{result.max_drawdown:.2f}%",
+                        "交易次数": result.investment_count,
+                        "止损次数": result.stop_loss_count,
+                        "止盈次数": result.take_profit_count
+                    })
+                
+                st.dataframe(pd.DataFrame(comparison_data), width='stretch', hide_index=True)
+                
+                st.markdown("")
+                visualizer = PlotlyVisualizer()
+                fig = visualizer.plot_comparison(results)
+                st.plotly_chart(fig, use_container_width=True)
+                
+                st.markdown("")
+                col_save_all = st.columns([1])
+                with col_save_all[0]:
+                    if st.button("💾 保存所有报告", key="save_all_comparison", use_container_width=True):
+                        rm = get_report_manager()
+                        saved_ids = []
+                        for name, result in results.items():
+                            result.strategy_params = {
+                                'fund_code': fund_code,
+                                'fund_name': fund_name_input,
+                                'start_date': str(sd),
+                                'end_date': str(ed),
+                                'strategy_name': name,
+                                'comparison_mode': True
+                            }
+                            report_id = rm.save_report(result)
+                            saved_ids.append(report_id)
+                        st.success(f"已保存 {len(saved_ids)} 个报告，ID: {saved_ids}")
+                        st.session_state['refresh_reports'] = True
+        elif run_btn and not selected_strategies:
+            st.warning("请至少选择一个策略进行对比")
 
 
-def page_compare(sd2, ed2, amt2, esl, slr, etp, tpr, mdt, tpsr, ds):
-    """多股票对比页面"""
+def page_single_backtest(sd, ed, amt, freq, day_of_month, day_of_week, ds):
+    """单股票回测页面 - Tab 布局"""
+    st.markdown(f'<div class="section-header">{t("page_single_backtest")}</div>', unsafe_allow_html=True)
+    
+    tab1, tab2 = st.tabs(["📊 单策略回测", "⚔️ 策略对比"])
+    
+    with tab1:
+        page_single_backtest_tab1(sd, ed, amt, freq, day_of_month, day_of_week, ds)
+    
+    with tab2:
+        page_single_backtest_tab2(sd, ed, amt, freq, day_of_month, day_of_week, ds)
+
+
+def page_compare(sd2, ed2, amt2, ds):
+    """多股票对比页面 - 简化为只支持策略选择"""
+    from backtest.strategy_manager import StrategyManager
+    
     st.markdown(f'<div class="section-header">{t("multi_compare_title")}</div>', unsafe_allow_html=True)
+    
+    sm = StrategyManager()
     
     col_left, col_right = st.columns([1, 2.5])
     
     with col_left:
-        with st.container():
-            st.markdown(f"""
-            <div class="card">
-                <h4>{t("input_settings")}</h4>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            compare_funds = st.text_area(
-                t("stock_codes_input"), 
-                value="600036,601318,600519", 
-                height=100,
-                help=t("stock_codes_help")
+        st.markdown("""
+        <div class="card">
+            <h4>多股票对比</h4>
+            <p>对比多只股票在同一策略下的表现</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        compare_funds = st.text_area(
+            "股票代码（逗号分隔）", 
+            value="600036,601318,600519", 
+            height=100,
+            help="例如: 600036,601318,600519"
+        )
+        
+        st.caption(f"📅 回测时间: {sd2} ~ {ed2}")
+        
+        amount2 = st.number_input("每次投入金额", min_value=100, value=int(amt2), step=100, key="amt2_multi")
+        
+        st.markdown("---")
+        st.markdown("### 选择策略")
+        
+        strategy_options = {s.id: s.name for s in sm.list_strategies()}
+        if strategy_options:
+            selected_strategy_id = st.selectbox(
+                "选择策略",
+                options=list(strategy_options.keys()),
+                format_func=lambda x: strategy_options.get(x) or x,
+                key="multi_strategy_selector"
             )
-            
-            st.caption(f"📅 回测时间: {sd2} ~ {ed2}")
-            
-            amount2 = st.number_input(t("sidebar_amount"), min_value=100, value=int(amt2), step=100, key="amt2")
-            
-            compare_btn = st.button(t("btn_start_compare"), type="primary", use_container_width=True)
+            selected_strategy = sm.get_strategy(selected_strategy_id)
+        else:
+            st.warning("暂无策略，请先创建策略")
+            selected_strategy = None
+        
+        compare_btn = st.button("🚀 开始对比", type="primary", use_container_width=True)
     
     with col_right:
         if compare_btn:
-            with st.spinner(t("spinner_fetching_data")):
-                codes = [c.strip() for c in compare_funds.split(',') if c.strip()]
+            codes = [c.strip() for c in compare_funds.split(',') if c.strip()]
+            
+            if not codes:
+                st.warning("请输入至少一个股票代码")
+                return
+            
+            if selected_strategy is None:
+                st.warning("请先选择一个策略")
+                return
+            
+            with st.spinner(f"正在对比 {len(codes)} 只股票..."):
                 fund_list = [{'fund_code': c, 'name': get_fund_name(c)} for c in codes]
                 
                 tester = FundBacktester(data_source=ds)
+                params = selected_strategy.params
+                
                 results = tester.compare(
                     fund_list, str(sd2), str(ed2), amount2,
-                    enable_stop_loss=esl,
-                    stop_loss_rate=slr,
-                    enable_take_profit=etp,
-                    take_profit_rate=tpr,
-                    max_drawdown_threshold=mdt,
-                    sell_ratio=tpsr
+                    enable_stop_loss=params.enable_stop_loss,
+                    stop_loss_rate=params.stop_loss_rate,
+                    enable_take_profit=params.enable_take_profit,
+                    take_profit_rate=params.take_profit_rate,
+                    max_drawdown_threshold=params.max_drawdown_threshold,
+                    sell_ratio=params.take_profit_sell_ratio
                 )
                 
                 if results:
-                    st.success(t("msg_compare_complete").format(count=len(results)))
+                    st.success(f"✅ 对比完成 - {selected_strategy.name} 策略")
                     
                     comp_df = pd.DataFrame([
                         {
-                            t("col_stock"): name,
-                            t("col_total_invested"): f"¥{r.total_invested:,.0f}",
-                            t("col_final_value"): f"¥{r.final_value:,.0f}",
-                            t("col_total_return_pct"): f"{r.return_rate:+.2f}%",
-                            t("col_annual_return_pct"): f"{r.annual_return:+.2f}%",
-                            t("col_max_drawdown_pct"): f"{r.max_drawdown:.2f}%",
-                            t("col_invest_count"): r.investment_count,
-                            t("col_stop_loss_count"): r.stop_loss_count,
-                            t("col_take_profit_count"): r.take_profit_count
+                            "股票": name,
+                            "总投入": f"¥{r.total_invested:,.0f}",
+                            "最终价值": f"¥{r.final_value:,.0f}",
+                            "总收益率": f"{r.return_rate:+.2f}%",
+                            "年化收益": f"{r.annual_return:+.2f}%",
+                            "最大回撤": f"{r.max_drawdown:.2f}%",
+                            "交易次数": r.investment_count,
+                            "止损次数": r.stop_loss_count,
+                            "止盈次数": r.take_profit_count
                         }
                         for name, r in results.items()
                     ])
@@ -848,24 +1095,32 @@ def page_compare(sd2, ed2, amt2, esl, slr, etp, tpr, mdt, tpsr, ds):
                     visualizer = PlotlyVisualizer()
                     fig = visualizer.plot_comparison(results)
                     st.plotly_chart(fig, use_container_width=True)
+                    
+                    st.markdown("")
+                    col_save = st.columns([1])
+                    with col_save[0]:
+                        if st.button("💾 保存所有报告", key="save_multi_reports", use_container_width=True):
+                            rm = get_report_manager()
+                            saved_ids = []
+                            for name, result in results.items():
+                                result.strategy_params = {
+                                    'fund_name': name,
+                                    'start_date': str(sd2),
+                                    'end_date': str(ed2),
+                                    'strategy_name': selected_strategy.name,
+                                    'investment_amount': amount2
+                                }
+                                report_id = rm.save_report(result)
+                                saved_ids.append(report_id)
+                            st.success(f"已保存 {len(saved_ids)} 个报告，ID: {saved_ids}")
+                            st.session_state['refresh_reports'] = True
                 else:
-                    st.error(t("error_data_fetch_failed"))
-                    with st.expander(t("troubleshoot_title")):
-                        st.markdown(f"""
-                        **{t("troubleshoot_possible_causes")}**
-                        1. **{t("cause_wrong_code")}**
-                        2. **{t("cause_no_permission")}**
-                        3. **{t("cause_network_error")}**
-                        
-                        **{t("troubleshoot_suggestions")}**
-                        - {t("suggest_change_code")}
-                        - {t("suggest_change_source")}
-                        """)
+                    st.error("数据获取失败")
         else:
-            st.markdown(f"""
+            st.markdown("""
             <div class="empty-state">
-                <h3>{t("empty_state_compare_hint")}</h3>
-                <p>{t("recommend_compare")}</p>
+                <h3>选择股票和策略开始对比</h3>
+                <p>多股票对比会展示不同股票在相同策略下的表现差异</p>
             </div>
             """, unsafe_allow_html=True)
 
@@ -1123,13 +1378,7 @@ def main():
         st.session_state['current_task_id'] = None
 
     params = sidebar_params()
-    (start_date, end_date, amount, frequency, day_of_month, day_of_week, data_source,
-     enable_stop_loss, stop_loss_rate, stop_loss_sell_ratio,
-     enable_take_profit, take_profit_rate, max_drawdown_threshold, take_profit_sell_ratio,
-     enable_dip_buy, dip_buy_tier1_threshold, dip_buy_tier1_amount,
-     dip_buy_tier2_threshold, dip_buy_tier2_amount,
-     dip_buy_tier3_threshold, dip_buy_tier3_amount,
-     enable_yield_boost, yield_boost_trigger, yield_boost_recover, yield_boost_amount) = params
+    (start_date, end_date, amount, frequency, day_of_month, day_of_week, data_source) = params
     
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         t("tab_single_backtest"),
@@ -1142,18 +1391,10 @@ def main():
     ])
     
     with tab1:
-        page_single_backtest(start_date, end_date, amount, frequency, day_of_month, day_of_week, data_source,
-                           enable_stop_loss, stop_loss_rate, stop_loss_sell_ratio,
-                           enable_take_profit, take_profit_rate, max_drawdown_threshold, take_profit_sell_ratio,
-                           enable_dip_buy, dip_buy_tier1_threshold, dip_buy_tier1_amount,
-                           dip_buy_tier2_threshold, dip_buy_tier2_amount,
-                           dip_buy_tier3_threshold, dip_buy_tier3_amount,
-                           enable_yield_boost, yield_boost_trigger, yield_boost_recover, yield_boost_amount)
+        page_single_backtest(start_date, end_date, amount, frequency, day_of_month, day_of_week, data_source)
     
     with tab2:
-        page_compare(start_date, end_date, amount, enable_stop_loss, stop_loss_rate,
-                    enable_take_profit, take_profit_rate, max_drawdown_threshold,
-                    take_profit_sell_ratio, data_source)
+        page_compare(start_date, end_date, amount, data_source)
     
     with tab3:
         render_watchlist_manager()
