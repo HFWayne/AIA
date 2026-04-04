@@ -67,15 +67,18 @@ def render_strategy_list(sm: StrategyManager, strategies: list, current_group: s
 
 def render_strategy_editor(sm: StrategyManager, strategy: StrategyTemplate = None, is_new: bool = True):
     """渲染策略编辑器"""
+    key_prefix = f"strategy_editor_{strategy.id if strategy else 'new'}"
+    
     st.markdown("### " + ("编辑策略" if not is_new else "新建策略"))
 
-    name = st.text_input("策略名称", value=strategy.name if strategy else "")
+    name = st.text_input("策略名称", value=strategy.name if strategy else "", key=f"{key_prefix}_name")
     group = st.selectbox(
         "策略分组",
         ["我的策略", "保守型", "激进型", "增强型"],
-        index=["我的策略", "保守型", "激进型", "增强型"].index(strategy.group) if strategy else 0
+        index=["我的策略", "保守型", "激进型", "增强型"].index(strategy.group) if strategy else 0,
+        key=f"{key_prefix}_group"
     )
-    description = st.text_area("策略描述", value=strategy.description if strategy else "")
+    description = st.text_area("策略描述", value=strategy.description if strategy else "", key=f"{key_prefix}_desc")
 
     st.markdown("#### 投资设置")
     col1, col2 = st.columns(2)
@@ -90,7 +93,7 @@ def render_strategy_editor(sm: StrategyManager, strategy: StrategyTemplate = Non
                 if strategy.params.frequency == v:
                     freq_index = i
                     break
-        freq = st.selectbox("投资频率", freq_display, index=freq_index)
+        freq = st.selectbox("投资频率", freq_display, index=freq_index, key=f"{key_prefix}_freq")
         frequency = freq_options[freq]
 
     with col2:
@@ -98,14 +101,16 @@ def render_strategy_editor(sm: StrategyManager, strategy: StrategyTemplate = Non
             "每次投资金额(元)",
             min_value=100,
             value=int(strategy.params.investment_amount) if strategy else 500,
-            step=100
+            step=100,
+            key=f"{key_prefix}_amount"
         )
 
     if frequency == "monthly":
         day_of_month = st.selectbox(
             "每月定投日期",
             list(range(1, 29)),
-            index=(strategy.params.day_of_month - 1) if strategy else 0
+            index=(strategy.params.day_of_month - 1) if strategy else 0,
+            key=f"{key_prefix}_day_of_month"
         )
         day_of_week = 0
     else:
@@ -113,12 +118,12 @@ def render_strategy_editor(sm: StrategyManager, strategy: StrategyTemplate = Non
         week_map = {"周一": 0, "周二": 1, "周三": 2, "周四": 3, "周五": 4}
         week_display = list(week_map.keys())
         week_index = strategy.params.day_of_week if strategy else 0
-        week_day = st.selectbox("每周定投日", week_display, index=week_index)
+        week_day = st.selectbox("每周定投日", week_display, index=week_index, key=f"{key_prefix}_day_of_week")
         day_of_week = week_map[week_day]
 
     st.markdown("#### 风控设置")
 
-    enable_stop_loss = st.checkbox("启用止损", value=strategy.params.enable_stop_loss if strategy else False)
+    enable_stop_loss = st.checkbox("启用止损", value=strategy.params.enable_stop_loss if strategy else False, key=f"{key_prefix}_enable_sl")
     stop_loss_rate = 0.10
     stop_loss_sell_ratio = 1.0
 
@@ -126,12 +131,14 @@ def render_strategy_editor(sm: StrategyManager, strategy: StrategyTemplate = Non
         col1, col2 = st.columns(2)
         with col1:
             stop_loss_rate = st.slider("止损率(%)", 5, 30,
-                                       value=int(strategy.params.stop_loss_rate * 100) if strategy else 10) / 100
+                                       value=int(strategy.params.stop_loss_rate * 100) if strategy else 10, 
+                                       key=f"{key_prefix}_sl_rate") / 100
         with col2:
             stop_loss_sell_ratio = st.slider("止损卖出比例(%)", 50, 100,
-                                            value=int(strategy.params.stop_loss_sell_ratio * 100) if strategy else 100) / 100
+                                            value=int(strategy.params.stop_loss_sell_ratio * 100) if strategy else 100,
+                                            key=f"{key_prefix}_sl_ratio") / 100
 
-    enable_take_profit = st.checkbox("启用止盈", value=strategy.params.enable_take_profit if strategy else False)
+    enable_take_profit = st.checkbox("启用止盈", value=strategy.params.enable_take_profit if strategy else False, key=f"{key_prefix}_enable_tp")
     take_profit_rate = 0.20
     max_drawdown_threshold = 0.10
     take_profit_sell_ratio = 0.5
@@ -140,17 +147,20 @@ def render_strategy_editor(sm: StrategyManager, strategy: StrategyTemplate = Non
         col1, col2, col3 = st.columns(3)
         with col1:
             take_profit_rate = st.slider("止盈收益率(%)", 5, 50,
-                                         value=int(strategy.params.take_profit_rate * 100) if strategy else 20) / 100
+                                         value=int(strategy.params.take_profit_rate * 100) if strategy else 20,
+                                         key=f"{key_prefix}_tp_rate") / 100
         with col2:
             max_drawdown_threshold = st.slider("最大回撤阈值(%)", 5, 30,
-                                               value=int(strategy.params.max_drawdown_threshold * 100) if strategy else 10) / 100
+                                               value=int(strategy.params.max_drawdown_threshold * 100) if strategy else 10,
+                                               key=f"{key_prefix}_tp_drawdown") / 100
         with col3:
             take_profit_sell_ratio = st.slider("卖出比例(%)", 10, 100,
-                                               value=int(strategy.params.take_profit_sell_ratio * 100) if strategy else 50) / 100
+                                               value=int(strategy.params.take_profit_sell_ratio * 100) if strategy else 50,
+                                               key=f"{key_prefix}_tp_ratio") / 100
 
     st.markdown("#### 补仓设置")
 
-    enable_dip_buy = st.checkbox("启用单日大跌补仓", value=strategy.params.enable_dip_buy if strategy else False)
+    enable_dip_buy = st.checkbox("启用单日大跌补仓", value=strategy.params.enable_dip_buy if strategy else False, key=f"{key_prefix}_enable_db")
     dip_buy_tier1_threshold = -0.03
     dip_buy_tier1_amount = 1000.0
     dip_buy_tier2_threshold = -0.05
@@ -164,27 +174,27 @@ def render_strategy_editor(sm: StrategyManager, strategy: StrategyTemplate = Non
             st.write("**跌幅阈值**")
             st.write("**补仓金额**")
         with col_t1:
-            tier1 = st.selectbox("t1", ["3%", "5%", "7%"], index=0, key="dip1_editor")
+            tier1 = st.selectbox("t1", ["3%", "5%", "7%"], index=0, key=f"{key_prefix}_db_t1")
             tier_map = {"3%": -0.03, "5%": -0.05, "7%": -0.07}
             dip_buy_tier1_threshold = tier_map.get(tier1, -0.03)
         with col_t2:
-            tier2 = st.selectbox("t2", ["3%", "5%", "7%"], index=1, key="dip2_editor")
+            tier2 = st.selectbox("t2", ["3%", "5%", "7%"], index=1, key=f"{key_prefix}_db_t2")
             dip_buy_tier2_threshold = tier_map.get(tier2, -0.05)
         with col_t3:
-            tier3 = st.selectbox("t3", ["3%", "5%", "7%"], index=2, key="dip3_editor")
+            tier3 = st.selectbox("t3", ["3%", "5%", "7%"], index=2, key=f"{key_prefix}_db_t3")
             dip_buy_tier3_threshold = tier_map.get(tier3, -0.07)
 
         col_amt1, col_amt2, col_amt3 = st.columns(3)
         with col_amt1:
-            dip_buy_tier1_amount = st.number_input("金额1", min_value=100, value=1000, step=100, key="dip_amt1_editor")
+            dip_buy_tier1_amount = st.number_input("金额1", min_value=100, value=1000, step=100, key=f"{key_prefix}_db_amt1")
         with col_amt2:
-            dip_buy_tier2_amount = st.number_input("金额2", min_value=100, value=1000, step=100, key="dip_amt2_editor")
+            dip_buy_tier2_amount = st.number_input("金额2", min_value=100, value=1000, step=100, key=f"{key_prefix}_db_amt2")
         with col_amt3:
-            dip_buy_tier3_amount = st.number_input("金额3", min_value=100, value=1000, step=100, key="dip_amt3_editor")
+            dip_buy_tier3_amount = st.number_input("金额3", min_value=100, value=1000, step=100, key=f"{key_prefix}_db_amt3")
 
     st.markdown("#### 收益增强设置")
 
-    enable_yield_boost = st.checkbox("启用累计收益率增额", value=strategy.params.enable_yield_boost if strategy else False)
+    enable_yield_boost = st.checkbox("启用累计收益率增额", value=strategy.params.enable_yield_boost if strategy else False, key=f"{key_prefix}_enable_yb")
     yield_boost_trigger = -0.20
     yield_boost_recover = -0.10
     yield_boost_amount = 500.0
@@ -193,12 +203,14 @@ def render_strategy_editor(sm: StrategyManager, strategy: StrategyTemplate = Non
         col1, col2, col3 = st.columns(3)
         with col1:
             yield_boost_trigger = st.slider("累计收益率低于(%)", -30, -5,
-                                            value=int(strategy.params.yield_boost_trigger * 100) if strategy else -20) / 100
+                                            value=int(strategy.params.yield_boost_trigger * 100) if strategy else -20,
+                                            key=f"{key_prefix}_yb_trigger") / 100
         with col2:
-            yield_boost_amount = st.number_input("每次增额(元)", min_value=100, value=500, step=100)
+            yield_boost_amount = st.number_input("每次增额(元)", min_value=100, value=500, step=100, key=f"{key_prefix}_yb_amount")
         with col3:
             yield_boost_recover = st.slider("收益率回升到(%)", -30, -5,
-                                            value=int(strategy.params.yield_boost_recover * 100) if strategy else -10) / 100
+                                            value=int(strategy.params.yield_boost_recover * 100) if strategy else -10,
+                                            key=f"{key_prefix}_yb_recover") / 100
 
         if yield_boost_recover >= yield_boost_trigger:
             st.error("恢复阈值必须大于触发阈值")
@@ -207,7 +219,7 @@ def render_strategy_editor(sm: StrategyManager, strategy: StrategyTemplate = Non
 
     col_save, col_cancel = st.columns(2)
     with col_save:
-        if st.button("💾 保存策略", type="primary", width='stretch'):
+        if st.button("💾 保存策略", type="primary", width='stretch', key=f"{key_prefix}_save_btn"):
             params = StrategyParams(
                 frequency=frequency,
                 day_of_month=day_of_month,
@@ -244,9 +256,10 @@ def render_strategy_editor(sm: StrategyManager, strategy: StrategyTemplate = Non
             st.rerun()
 
     with col_cancel:
-        if st.button("取消", width='stretch'):
+        if st.button("取消", width='stretch', key=f"{key_prefix}_cancel_btn"):
             if strategy:
                 st.session_state[f'edit_strategy_{strategy.id}'] = False
+            st.rerun()
             st.rerun()
 
 
