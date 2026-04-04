@@ -538,33 +538,51 @@ def plot_report_trades_plotly(report):
 def render_strategy_section(sm, key_prefix: str = "strategy"):
     """渲染策略选择器组件"""
     strategy_options = {s.id: s.name for s in sm.list_strategies()}
-    strategy_options["__custom__"] = "自定义参数"
     
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        selected_strategy_id = st.selectbox(
-            "选择策略",
-            options=list(strategy_options.keys()),
-            format_func=lambda x: strategy_options.get(x, x),
-            key=f"{key_prefix}_selector"
-        )
+        if strategy_options:
+            selected_strategy_id = st.selectbox(
+                "选择策略",
+                options=list(strategy_options.keys()),
+                format_func=lambda x: strategy_options.get(x) or x,
+                key=f"{key_prefix}_selector"
+            )
+        else:
+            st.info("暂无策略，请创建新策略")
+            selected_strategy_id = None
     
     with col2:
         st.write("")
-        if st.button("+ 新建策略", key=f"{key_prefix}_new", use_container_width=True):
+        if st.button("+ 新建策略", key=f"{key_prefix}_new_btn", use_container_width=True):
             st.session_state[f'{key_prefix}_show_editor'] = True
     
     params = None
     strategy_name = None
     
-    if selected_strategy_id != "__custom__" and selected_strategy_id in strategy_options:
+    if selected_strategy_id and selected_strategy_id in strategy_options:
         strategy = sm.get_strategy(selected_strategy_id)
         if strategy:
             params = strategy.params
             strategy_name = strategy.name
     
-    show_details = st.checkbox("显示参数详情", value=False, key=f"{key_prefix}_show_details")
+    if st.session_state.get(f'{key_prefix}_show_editor', False):
+        with st.expander("✏️ 新建策略", expanded=True):
+            from backtest.page_strategy import render_strategy_editor
+            new_strategy = render_strategy_editor(sm, None, is_new=True)
+            
+            col_done, col_cancel = st.columns(2)
+            with col_done:
+                if st.button("完成创建", key=f"{key_prefix}_done_new", use_container_width=True):
+                    st.session_state[f'{key_prefix}_show_editor'] = False
+                    st.rerun()
+            with col_cancel:
+                if st.button("取消", key=f"{key_prefix}_cancel_new", use_container_width=True):
+                    st.session_state[f'{key_prefix}_show_editor'] = False
+                    st.rerun()
+    
+    show_details = st.checkbox("显示/编辑参数", value=False, key=f"{key_prefix}_show_details")
     
     if show_details:
         with st.expander("策略参数详情", expanded=True):
@@ -572,14 +590,14 @@ def render_strategy_section(sm, key_prefix: str = "strategy"):
                 params = render_strategy_params_form(key_prefix)
             else:
                 st.info(f"当前策略: {strategy_name}")
-                st.json(params.to_dict())
+                render_params_display(params)
     
     if params is None:
         params = render_strategy_params_form(key_prefix)
     
     col_save, col_space = st.columns([1, 3])
     with col_save:
-        if st.button("💾 保存为策略", key=f"{key_prefix}_save", use_container_width=True):
+        if st.button("💾 保存为策略", key=f"{key_prefix}_save_btn", use_container_width=True):
             st.session_state[f'{key_prefix}_show_save_dialog'] = True
     
     if st.session_state.get(f'{key_prefix}_show_save_dialog', False):
@@ -591,9 +609,9 @@ def render_strategy_section(sm, key_prefix: str = "strategy"):
             
             col_submit, col_cancel = st.columns(2)
             with col_submit:
-                submitted = st.form_submit_button("保存", use_container_width=True)
+                submitted = st.form_submit_button("保存", key=f"{key_prefix}_save_submit", use_container_width=True)
             with col_cancel:
-                if st.form_submit_button("取消", use_container_width=True):
+                if st.form_submit_button("取消", key=f"{key_prefix}_save_cancel", use_container_width=True):
                     st.session_state[f'{key_prefix}_show_save_dialog'] = False
                     st.rerun()
             
@@ -606,10 +624,47 @@ def render_strategy_section(sm, key_prefix: str = "strategy"):
                 )
                 st.success(f"策略 '{new_name}' 已保存!")
                 st.session_state[f'{key_prefix}_show_save_dialog'] = False
-                st.session_state[f'{key_prefix}_selector'] = new_strategy.id
+                if selected_strategy_id:
+                    st.session_state[f'{key_prefix}_selector'] = new_strategy.id
                 st.rerun()
     
     return params, strategy_name
+
+
+def render_params_display(params):
+    """以可读格式显示策略参数"""
+    p = params
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**止损设置**")
+        st.write(f"启用: {'是' if p.enable_stop_loss else '否'}")
+        if p.enable_stop_loss:
+            st.write(f"阈值: {int(p.stop_loss_rate * 100)}%")
+            st.write(f"卖出比例: {int(p.stop_loss_sell_ratio * 100)}%")
+        
+        st.markdown("**止盈设置**")
+        st.write(f"启用: {'是' if p.enable_take_profit else '否'}")
+        if p.enable_take_profit:
+            st.write(f"阈值: {int(p.take_profit_rate * 100)}%")
+            st.write(f"回撤阈值: {int(p.max_drawdown_threshold * 100)}%")
+            st.write(f"卖出比例: {int(p.take_profit_sell_ratio * 100)}%")
+        
+        st.markdown("**补仓设置**")
+        st.write(f"启用: {'是' if p.enable_dip_buy else '否'}")
+    
+    with col2:
+        if p.enable_dip_buy:
+            st.write(f"一档: {int(p.dip_buy_tier1_threshold * 100)}% 跌幅，+¥{p.dip_buy_tier1_amount:.0f}")
+            st.write(f"二档: {int(p.dip_buy_tier2_threshold * 100)}% 跌幅，+¥{p.dip_buy_tier2_amount:.0f}")
+            st.write(f"三档: {int(p.dip_buy_tier3_threshold * 100)}% 跌幅，+¥{p.dip_buy_tier3_amount:.0f}")
+        
+        st.markdown("**收益增强设置**")
+        st.write(f"启用: {'是' if p.enable_yield_boost else '否'}")
+        if p.enable_yield_boost:
+            st.write(f"触发阈值: {int(p.yield_boost_trigger * 100)}%")
+            st.write(f"恢复阈值: {int(p.yield_boost_recover * 100)}%")
+            st.write(f"增强金额: ¥{p.yield_boost_amount:.0f}")
 
 
 def render_strategy_params_form(key_prefix: str = "strategy"):
@@ -1041,7 +1096,7 @@ def page_compare(sd2, ed2, amt2, ds):
             st.warning("暂无策略，请先创建策略")
             selected_strategy = None
         
-        compare_btn = st.button("🚀 开始对比", type="primary", use_container_width=True)
+        compare_btn = st.button("🚀 开始对比", type="primary", key="multi_compare_btn", use_container_width=True)
     
     with col_right:
         if compare_btn:
