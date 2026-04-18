@@ -180,11 +180,11 @@ class CacheKeys:
         return f"stock:{code}"
 
     @staticmethod
-    def daily_kline(code: str, date: str, source: str = "akshare") -> str:
+    def daily_kline(code: str, date: str, source: str = "tushare") -> str:
         return f"kline:{source}:{code}:{date}"
 
     @staticmethod
-    def kline_range(code: str, start: str, end: str, source: str = "akshare") -> str:
+    def kline_range(code: str, start: str, end: str, source: str = "tushare") -> str:
         return f"kline:{source}:{code}:range:{start}:{end}"
 
     @staticmethod

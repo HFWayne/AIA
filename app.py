@@ -18,8 +18,9 @@ from backtest.page_strategy import render_strategy_manager
 from backtest.page_task import render_task_manager
 from backtest.page_diagnostic import render_diagnostic_page
 from i18n import t, render_language_selector, get_locale
+from data_source.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger('app')
 
 
 def clear_all_data():
@@ -42,8 +43,7 @@ def clear_all_data():
             
             engine = get_engine()
             tables_to_clear = [
-                'daily_kline_akshare',
-                'daily_kline_tushare', 
+'daily_kline_tushare',
                 'reports',
                 'watchlists',
                 'watchlist_stocks',
@@ -343,6 +343,16 @@ def get_report_manager():
 
 def render_metrics(result):
     """渲染指标卡片"""
+    # 调试日志
+    logger.info("=" * 60)
+    logger.info("render_metrics - 接收到的 result:")
+    logger.info(f"  result 类型: {type(result)}")
+    logger.info(f"  total_invested: {result.total_invested}")
+    logger.info(f"  final_value: {result.final_value}")
+    logger.info(f"  return_rate: {result.return_rate}")
+    logger.info(f"  annual_return: {result.annual_return}")
+    logger.info("=" * 60)
+    
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -677,20 +687,20 @@ def render_strategy_params_form(key_prefix: str = "strategy"):
         with col1:
             st.markdown("**止损设置**")
             enable_stop_loss = st.checkbox("启用止损", value=False, key=f"{key_prefix}_esl")
-            stop_loss_rate = 0.15
+            stop_loss_rate = 0.20
             stop_loss_sell_ratio = 1.0
             if enable_stop_loss:
-                stop_loss_rate = st.slider("止损阈值", 5, 30, 15, key=f"{key_prefix}_slr") / 100
+                stop_loss_rate = st.slider("止损阈值", 5, 50, 20, key=f"{key_prefix}_slr") / 100
                 stop_loss_sell_ratio = st.slider("止损卖出比例", 50, 100, 100, key=f"{key_prefix}_slsr") / 100
             
             st.markdown("**止盈设置**")
             enable_take_profit = st.checkbox("启用止盈", value=False, key=f"{key_prefix}_etp")
-            take_profit_rate = 0.20
-            max_drawdown_threshold = 0.10
+            take_profit_rate = 0.30
+            max_drawdown_threshold = 0.15
             take_profit_sell_ratio = 0.5
             if enable_take_profit:
-                take_profit_rate = st.slider("止盈阈值", 5, 50, 20, key=f"{key_prefix}_tpr") / 100
-                max_drawdown_threshold = st.slider("最大回撤阈值", 5, 30, 10, key=f"{key_prefix}_mdt") / 100
+                take_profit_rate = st.slider("止盈阈值", 5, 50, 30, key=f"{key_prefix}_tpr") / 100
+                max_drawdown_threshold = st.slider("最大回撤阈值", 5, 30, 15, key=f"{key_prefix}_mdt") / 100
                 take_profit_sell_ratio = st.slider("止盈卖出比例", 10, 100, 50, key=f"{key_prefix}_tpsr") / 100
         
         with col2:
@@ -831,6 +841,16 @@ def page_single_backtest_tab1(sd, ed, amt, freq, day_of_month, day_of_week, ds):
                 
                 result = tester.single_fund(config)
                 
+                # 调试日志
+                logger.info("=" * 60)
+                logger.info("app.py - 回测结果:")
+                logger.info(f"  result 类型: {type(result)}")
+                if result:
+                    logger.info(f"  total_invested: {result.total_invested}")
+                    logger.info(f"  final_value: {result.final_value}")
+                    logger.info(f"  investment_count: {result.investment_count}")
+                logger.info("=" * 60)
+                
                 if result:
                     result.strategy_params = {
                         'fund_code': fund_code,
@@ -843,10 +863,21 @@ def page_single_backtest_tab1(sd, ed, amt, freq, day_of_month, day_of_week, ds):
                     st.session_state['current_result'] = result
                     st.session_state['current_fund_name'] = fund_name_input
                     st.session_state['current_strategy_name'] = strategy_name
+                    logger.info(f"已保存到 session_state, final_value={result.final_value}")
         
         current_result = st.session_state.get('current_result')
         current_fund_name = st.session_state.get('current_fund_name', fund_code)
         current_strategy_name = st.session_state.get('current_strategy_name', '自定义')
+        
+        # 调试日志
+        logger.info("=" * 60)
+        logger.info("app.py - 从 session_state 读取:")
+        logger.info(f"  current_result: {current_result}")
+        if current_result:
+            logger.info(f"  current_result 类型: {type(current_result)}")
+            logger.info(f"  current_result.final_value: {current_result.final_value}")
+            logger.info(f"  current_result.total_invested: {current_result.total_invested}")
+        logger.info("=" * 60)
         
         if current_result:
             st.success(f"✅ 回测完成 - {current_fund_name} (策略: {current_strategy_name})")

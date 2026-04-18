@@ -180,7 +180,7 @@ class StrategyManager:
                             "investment_amount": 200.0,
                             "enable_stop_loss": True,
                             "stop_loss_rate": 0.15,
-                            "stop_loss_sell_ratio": 1.0,
+                            "stop_loss_sell_ratio": 0.5,  # 只卖50%，保留一半
                             "enable_take_profit": True,
                             "take_profit_rate": 0.30,
                             "max_drawdown_threshold": 0.15,
@@ -203,11 +203,11 @@ class StrategyManager:
                             "day_of_month": 1,
                             "investment_amount": 1000.0,
                             "enable_stop_loss": True,
-                            "stop_loss_rate": 0.08,
+                            "stop_loss_rate": 0.20,  # 提高到20%
                             "stop_loss_sell_ratio": 1.0,
                             "enable_take_profit": True,
-                            "take_profit_rate": 0.15,
-                            "max_drawdown_threshold": 0.08,
+                            "take_profit_rate": 0.30,
+                            "max_drawdown_threshold": 0.15,
                             "take_profit_sell_ratio": 0.5,
                             "enable_dip_buy": True,
                             "dip_buy_tier1_threshold": -0.03,

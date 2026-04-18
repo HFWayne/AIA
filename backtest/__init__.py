@@ -192,7 +192,7 @@ def quick_backtest(fund_code: str, fund_name: Optional[str] = None,
         tester.visualize_single(result, fund_name)
         return result
     else:
-        print("获取数据失败，请尝试其他数据源 (akshare/tushare)")
+        print("获取数据失败，请尝试其他数据源 (tushare)")
         return None
 
 

@@ -14,7 +14,6 @@ from typing import Optional, List, Dict
 from pathlib import Path
 
 import tushare as ts
-import akshare as ak
 
 from data_source.config import TU_SHARE_TOKEN
 
@@ -56,7 +55,6 @@ class DataSourceDiagnostic:
         logger.info("开始数据源诊断...")
         
         self._diagnose_tushare()
-        self._diagnose_akshare()
         
         return DiagnosticResult(
             timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -95,7 +93,7 @@ class DataSourceDiagnostic:
             pro = ts.pro_api()
             
             def test_api():
-                return pro.fund_nav(ts_code='510300.OF', start_date='20240101', end_date='20240110')
+                return pro.daily(ts_code='600036.SH', start_date='20240101', end_date='20240110')
 
             connected, latency, error = self._measure_latency(test_api)
             status.connected = connected
@@ -104,15 +102,14 @@ class DataSourceDiagnostic:
             if connected:
                 status.capabilities = [
                     "股票日线行情",
-                    "基金净值数据",
                     "股票基本信息",
                     "指数数据",
                     "财务数据",
+                    "复权数据（前后复权）",
                 ]
                 status.supported_types = [
-                    "A股（沪深）",
+                    "A股（沪深京）",
                     "ETF基金",
-                    "LOF基金",
                     "指数成分股",
                 ]
                 status.limitations = [
@@ -129,60 +126,6 @@ class DataSourceDiagnostic:
             else:
                 status.error_message = error
                 
-        except Exception as e:
-            status.connected = False
-            status.error_message = str(e)
-
-        self.results.append(status)
-
-    def _diagnose_akshare(self):
-        """诊断 AkShare"""
-        logger.info("诊断 AkShare...")
-        status = SourceStatus(
-            name="akshare",
-            display_name="AkShare",
-            connected=False,
-            latency_ms=None,
-            error_message=None,
-            capabilities=[],
-            supported_types=[],
-            limitations=[]
-        )
-
-        try:
-            def test_api():
-                return ak.stock_zh_a_hist(symbol='600036', start_date='20240101', end_date='20240110')
-
-            connected, latency, error = self._measure_latency(test_api)
-            status.connected = connected
-            status.latency_ms = latency
-
-            if connected:
-                status.capabilities = [
-                    "A股实时行情",
-                    "A股历史行情",
-                    "股票基本信息",
-                    "指数行情",
-                    "基金ETF数据",
-                    "期货数据",
-                    "宏观数据",
-                ]
-                status.supported_types = [
-                    "A股（沪深京）",
-                    "ETF基金",
-                    "LOF基金",
-                    "债券",
-                    "期货",
-                    "期权",
-                ]
-                status.limitations = [
-                    "完全免费开源",
-                    "数据来源于东方财富等",
-                    "部分接口可能不稳定",
-                ]
-            else:
-                status.error_message = error
-
         except Exception as e:
             status.connected = False
             status.error_message = str(e)
@@ -241,9 +184,7 @@ class DataSourceDiagnostic:
 
         md += f"""## 推荐使用方案
 
-### 自动切换模式（推荐）
-
-系统默认使用 **akshare** 作为主数据源，当主数据源不可用时自动切换到 **tushare**。
+系统使用 **tushare** 作为数据源。
 
 ### 回退链路
 
@@ -253,8 +194,7 @@ class DataSourceDiagnostic:
 
 ## 使用说明
 
-1. **AkShare**: 完全免费，数据来源于东方财富，建议作为主力数据源
-2. **Tushare**: 需要配置 `TU_SHARE_TOKEN` 环境变量，免费版有调用频率限制
+1. **Tushare**: 需要配置 `TU_SHARE_TOKEN` 环境变量，免费版有调用频率限制
 
 ---
 *此报告由系统自动生成*
@@ -322,11 +262,10 @@ class DataSourceDiagnostic:
 """
             html += "</div>"
 
-        html += """
+        html += f"""
     <div class="card">
         <h2>推荐使用方案</h2>
-        <p><strong>自动切换模式（推荐）</strong></p>
-        <p>系统默认使用 <strong>akshare</strong> 作为主数据源，当主数据源不可用时自动切换到 <strong>tushare</strong>。</p>
+        <p>系统使用 <strong>tushare</strong> 作为数据源。</p>
         <p><strong>回退链路:</strong></p>
         <ol>
 """ + ''.join(f'<li>{s}</li>' for s in result.summary['fallback_chain']) + """
@@ -335,7 +274,6 @@ class DataSourceDiagnostic:
     
     <div class="card">
         <h2>使用说明</h2>
-        <p><strong>AkShare:</strong> 完全免费，数据来源于东方财富，建议作为主力数据源</p>
         <p><strong>Tushare:</strong> 需要配置 TU_SHARE_TOKEN 环境变量，免费版有调用频率限制</p>
     </div>
     

@@ -90,17 +90,12 @@ def render_diagnostic_page():
         st.markdown("### 📋 推荐使用方案")
         
         st.info("""
-        **自动切换模式（推荐）**: 系统默认使用 **akshare** 作为主数据源，当主数据源不可用时自动切换到 **tushare**。
+        系统使用 **tushare** 作为主数据源。
         
-        **回退链路**: """ + " → ".join(result.summary.get('fallback_chain', [])))
+        **数据源**: """ + " → ".join(result.summary.get('fallback_chain', [])))
         
         with st.expander("📖 详细使用说明"):
             st.markdown("""
-            **AkShare**
-            - 完全免费开源
-            - 数据来源于东方财富等
-            - 建议作为主力数据源
-            
             **Tushare**
             - 需要配置 `TU_SHARE_TOKEN` 环境变量
             - 免费版有 API 调用频率限制（每分钟 200 次）

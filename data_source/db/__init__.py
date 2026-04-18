@@ -4,17 +4,19 @@
 """
 
 from data_source.db.models import (
-    Stock, DailyKlineAkShare, DailyKlineTushare, Income, FinaIndicator, SyncLog
+    Base, Stock, DailyKlineTushare, Income, FinaIndicator, SyncLog, 
+    Report, Watchlist, WatchlistStock, StrategyTemplateModel
 )
-from data_source.db.connection import get_db_session, init_database
 
 __all__ = [
+    "Base",
     "Stock",
-    "DailyKlineAkShare",
     "DailyKlineTushare",
     "Income",
     "FinaIndicator",
     "SyncLog",
-    "get_db_session",
-    "init_database",
+    "Report",
+    "Watchlist",
+    "WatchlistStock",
+    "StrategyTemplateModel",
 ]

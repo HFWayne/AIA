@@ -106,7 +106,7 @@ en_US = {
     "cause_network_error": "Network error - Cannot connect to data source server",
     "cause_data_not_synced": "Data not synced - No historical data in local database",
     "suggest_change_code": "Try a different stock code",
-    "suggest_change_source": "Switch data source (akshare/tushare)",
+    "suggest_change_source": "Switch data source (tushare)",
     "suggest_sync_data": "Sync stock data to local database first",
     
     # Success messages

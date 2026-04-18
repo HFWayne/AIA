@@ -153,7 +153,7 @@ class DatabaseTestHelper:
         engine = get_engine()
         required_tables = [
             'reports', 'watchlists', 'watchlist_stocks',
-            'strategy_templates', 'stocks', 'daily_kline_akshare', 'daily_kline_tushare'
+            'strategy_templates', 'stocks', 'daily_kline_tushare'
         ]
 
         with engine.connect() as conn:
@@ -237,17 +237,6 @@ def mock_tushare():
             )
         )
         mock.pro.return_value = mock_pro
-        yield mock
-
-
-@pytest.fixture
-def mock_akshare():
-    """Mock AkShare"""
-    with patch('data_source.fund_data_source.ak') as mock:
-        mock.stock_zh_a_hist.return_value = Mock(
-            empty=False,
-            __iter__=Mock(return_value=iter([]))
-        )
         yield mock
 
 

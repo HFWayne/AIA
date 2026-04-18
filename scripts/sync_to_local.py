@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-批量数据同步脚本 - 将 akshare/tushare 数据缓存到本地数据库
+批量数据同步脚本 - 将 tushare 数据缓存到本地数据库
 
 使用方法:
     python scripts/sync_to_local.py                  # 同步默认股票列表
@@ -85,12 +85,8 @@ def sync_batch(codes: list, days: int = 3650, source: str = None, delay: float =
 
 def main():
     parser = argparse.ArgumentParser(description='批量数据同步工具')
-    parser.add_argument('--codes', nargs='+', help='指定股票代码')
-    parser.add_argument('--all', action='store_true', help='同步所有股票（耗时较长）')
-    parser.add_argument('--etf', action='store_true', help='同步 ETF')
-    parser.add_argument('--days', type=int, default=3650, help='同步天数（默认3650天/10年）')
-    parser.add_argument('--source', choices=['akshare', 'tushare', 'auto'], 
-                        default=None, help='数据源')
+    parser.add_argument('--source', type=str, default='tushare', 
+                        help='数据源 (默认: tushare)')
     
     args = parser.parse_args()
     
@@ -108,10 +104,10 @@ def main():
         logger.info(f"将同步默认 {len(codes)} 只股票...")
     
     logger.info(f"同步天数: {args.days} 天")
-    logger.info(f"数据源: {args.source or 'auto (akshare 优先)'}")
+    logger.info(f"数据源: tushare")
     logger.info("-" * 50)
     
-    results = sync_batch(codes, args.days, args.source)
+    results = sync_batch(codes, args.days)
     
     logger.info("-" * 50)
     logger.info(f"同步完成! 成功: {results['success']}, 失败: {results['failed']}")

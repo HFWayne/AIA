@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 统一数据源接口
-支持：MySQL数据库(分表存储) -> Redis(热缓存) -> akshare/tushare(原始数据)
-分表存储：daily_kline_akshare, daily_kline_tushare
-回退机制：主数据源失败时自动切换到备用数据源
+支持：MySQL数据库(分表存储) -> Redis(热缓存) -> tushare(付费API)
+只使用付费的 tushare 数据源
 """
 
 import logging
@@ -14,21 +13,19 @@ from datetime import datetime
 from typing import Optional, List
 
 import tushare as ts
-import akshare as ak
 from sqlalchemy import text
 
 from data_source.config import (
     DATA_SOURCE, TU_SHARE_TOKEN, REQUEST_DELAY, MAX_RETRIES,
-    AVAILABLE_SOURCES, ENABLE_MYSQL, AKSHARE_CONFIG
+    AVAILABLE_SOURCES, ENABLE_MYSQL
 )
 from data_source.db.connection import get_db_session, get_engine
-from data_source.db.models import Stock, DailyKlineAkShare, DailyKlineTushare
+from data_source.db.models import Stock, DailyKlineTushare
 from data_source.cache import get_cache, CacheKeys
-from data_source.sync.akshare_sync import AkshareSync
 from data_source.sync.tushare_sync import TushareSync
+from data_source.logger import setup_logger
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = setup_logger('fund_data_source')
 
 
 class FundDataSource:
@@ -70,28 +67,15 @@ class FundDataSource:
             time.sleep(self.request_delay)
 
     def _get_source_priority(self) -> List[str]:
-        """获取数据源优先级回退链
-        
-        用户选择哪个数据源，哪个就是主数据源，失败后回退到另一个
-        """
-        if self.current_source == "akshare":
-            return ["akshare", "tushare"]
-        elif self.current_source == "tushare":
-            return ["tushare", "akshare"]
-        elif self.current_source == "auto":
-            return ["akshare", "tushare"]
-        return [self.current_source]
+        """获取数据源优先级 - 只使用 tushare"""
+        return ["tushare"]
 
     def _get_kline_model(self, source: str):
         """根据数据源获取对应的模型类"""
-        if source == "akshare":
-            return DailyKlineAkShare
         return DailyKlineTushare
 
     def _get_table_name(self, source: str) -> str:
         """获取表名"""
-        if source == "akshare":
-            return "daily_kline_akshare"
         return "daily_kline_tushare"
 
     def get_fund_data(
@@ -175,46 +159,8 @@ class FundDataSource:
         end_date: str,
         source: str
     ) -> Optional[pd.DataFrame]:
-        """从 API 获取数据，带指数退避重试"""
-        if source == "akshare":
-            return self._fetch_from_akshare_with_retry(fund_code, start_date, end_date)
-        elif source == "tushare":
-            return self._fetch_from_tushare_with_retry(fund_code, start_date, end_date)
-        return None
-
-    def _fetch_from_akshare_with_retry(
-        self,
-        fund_code: str,
-        start_date: str,
-        end_date: str
-    ) -> Optional[pd.DataFrame]:
-        """从 AkShare 获取数据，带指数退避重试"""
-        config = AKSHARE_CONFIG
-        max_retries = config["max_retries"]
-        backoff_base = config["retry_backoff"]
-        max_delay = config["max_retry_delay"]
-        
-        for retry in range(max_retries):
-            try:
-                self._apply_delay_akshare()
-                df = self._get_fund_from_akshare(fund_code, start_date, end_date)
-                if df is not None and not df.empty:
-                    if retry > 0:
-                        logger.info(f"AkShare {fund_code} 重试 {retry} 次后成功")
-                    return df
-            except Exception as e:
-                error_type = self._get_error_type(str(e))
-                if retry < max_retries - 1:
-                    delay = min(backoff_base ** retry + random.uniform(0, 1), max_delay)
-                    logger.warning(
-                        f"AkShare 获取 {fund_code} 失败 (尝试 {retry+1}/{max_retries}): "
-                        f"{error_type}, {delay:.1f}秒后重试..."
-                    )
-                    time.sleep(delay)
-                else:
-                    logger.error(f"AkShare {fund_code} 重试 {max_retries} 次后仍失败: {error_type}")
-        
-        return None
+        """从 API 获取数据，带重试"""
+        return self._fetch_from_tushare_with_retry(fund_code, start_date, end_date)
 
     def _fetch_from_tushare_with_retry(
         self,
@@ -246,11 +192,6 @@ class FundDataSource:
             return "请求过于频繁"
         else:
             return "其他错误"
-
-    def _apply_delay_akshare(self):
-        """AkShare 专用请求延时"""
-        delay = AKSHARE_CONFIG["request_delay"] + random.uniform(0, 0.3)
-        time.sleep(delay)
 
     def _save_to_database(self, fund_code: str, df: pd.DataFrame, source: str, 
                           start_date: str = None, end_date: str = None):
@@ -302,54 +243,6 @@ class FundDataSource:
         except Exception as e:
             logger.warning(f"保存数据到数据库({source})失败: {e}")
 
-    def _get_fund_from_akshare(self, fund_code: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
-        """从 akshare 获取数据"""
-        start_dt = datetime.strptime(start_date, '%Y%m%d')
-        end_dt = datetime.strptime(end_date, '%Y%m%d')
-        
-        for retry in range(self.max_retries):
-            try:
-                self._apply_delay()
-                
-                if fund_code.startswith('5'):
-                    df = ak.fund_etf_hist_em(symbol=fund_code)
-                else:
-                    df = ak.stock_zh_a_hist(symbol=fund_code, start_date=start_date, end_date=end_date, adjust="qfq")
-                
-                if df is None or df.empty:
-                    continue
-
-                df['日期'] = pd.to_datetime(df['日期'], errors='coerce')
-                df = df.dropna(subset=['日期'])
-                df = df[df['日期'] >= start_dt]
-                df = df[df['日期'] <= end_dt]
-
-                if df.empty:
-                    continue
-
-                df['nav'] = pd.to_numeric(df['收盘'], errors='coerce')
-                df = df.dropna(subset=['nav'])
-                df = df[df['nav'] > 0]
-
-                result = pd.DataFrame()
-                result['date'] = df['日期'].dt.strftime('%Y%m%d')
-                result['nav'] = df['nav']
-                result['accum_nav'] = df['nav']
-                
-                for col, name in [('开盘', 'open'), ('最高', 'high'), ('最低', 'low')]:
-                    if col in df.columns:
-                        result[name] = pd.to_numeric(df[col], errors='coerce')
-                    else:
-                        result[name] = df['nav']
-
-                return result.dropna(subset=['nav']).sort_values('date').reset_index(drop=True)
-                
-            except Exception as e:
-                logger.warning(f"akshare 获取失败 (retry {retry+1}): {e}")
-                time.sleep(1)
-        
-        return None
-
     def _get_fund_from_tushare(self, fund_code: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
         """从 tushare 获取数据"""
         if self.pro is None:
@@ -397,38 +290,17 @@ class FundDataSource:
         except:
             pass
         
-        try:
-            if self.current_source == "akshare":
-                df = ak.stock_info_a_code_name()
-                if df is not None:
-                    row = df[df['code'] == fund_code]
-                    if not row.empty:
-                        return row.iloc[0]['name']
-        except:
-            pass
-        
         return fund_code
 
-    def sync_stock_list(self, source: str = "akshare") -> int:
+    def sync_stock_list(self, source: str = "tushare") -> int:
         """同步股票列表"""
-        if source == "akshare":
-            sync = AkshareSync()
-            return sync.sync_stock_list()
-        else:
-            sync = TushareSync()
-            return sync.sync_all_stocks().get("stocks", 0) + sync.sync_all_stocks().get("etfs", 0)
+        sync = TushareSync()
+        return sync.sync_all_stocks().get("stocks", 0) + sync.sync_all_stocks().get("etfs", 0)
 
     def sync_daily_kline(self, fund_code: str, source: str = None) -> int:
         """同步日线数据"""
-        if source is None:
-            source = self.current_source
-            
-        if source == "akshare":
-            sync = AkshareSync()
-            return sync.sync_daily_kline(fund_code)
-        else:
-            sync = TushareSync()
-            return sync.sync_daily_kline(fund_code)
+        sync = TushareSync()
+        return sync.sync_daily_kline(fund_code)
 
     def get_data_range(self, source: str = None) -> dict:
         """获取数据日期范围"""
