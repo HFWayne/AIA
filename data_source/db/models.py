@@ -264,3 +264,28 @@ class StrategyTemplateModel(Base):
             "created_at": str(self.created_at) if self.created_at else None,
             "updated_at": str(self.updated_at) if self.updated_at else None,
         }
+
+
+class FundNav(Base):
+    """基金净值表"""
+    __tablename__ = "fund_nav"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    code = Column(String(10), nullable=False, comment="基金代码")
+    ts_code = Column(String(20), comment="tushare代码")
+    ann_date = Column(Date, comment="公告日期")
+    nav_date = Column(Date, nullable=False, comment="净值日期")
+    unit_nav = Column(DECIMAL(15, 6), comment="单位净值")
+    accum_nav = Column(DECIMAL(15, 6), comment="累计净值")
+    accum_div = Column(DECIMAL(15, 6), comment="累计分红")
+    net_asset = Column(DECIMAL(20, 2), comment="资产规模")
+    total_netasset = Column(DECIMAL(20, 2), comment="总资产")
+    adj_nav = Column(DECIMAL(15, 6), comment="调整净值")
+    update_flag = Column(String(1), comment="更新标志")
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint("code", "nav_date", name="uk_fund_nav_code_date"),
+        Index("idx_fund_nav_date", "nav_date"),
+        Index("idx_fund_nav_code", "code"),
+    )
