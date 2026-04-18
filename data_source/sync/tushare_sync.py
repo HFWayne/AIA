@@ -466,19 +466,30 @@ def sync_daily_by_date(trade_date: str) -> int:
         return result
     
     def sync_etf_daily(self, code: str, start_date: str = None, end_date: str = None) -> int:
-        """同步单只ETF的日线数据"""
+        """同步单只ETF/场内基金的日线数据"""
         if self.pro is None:
             return 0
         
-        exchange = "SH" if code.startswith(("5", "6", "9")) else "SZ"
-        ts_code = f"{code}.{exchange}"
+        # Determine exchange from code prefix
+        if code.startswith('5') or code.startswith('6') or code.startswith('9'):
+            ts_code = f"{code}.SH"
+        else:
+            ts_code = f"{code}.SZ"
         
         if end_date is None:
             end_date = datetime.now().strftime('%Y%m%d')
         if start_date is None:
             start_date = "20150101"
         
-        df = self._retry_get(self.pro.etf_daily, ts_code=ts_code, start_date=start_date, end_date=end_date)
+        # Try fund_daily first (works for both ETFs and场内基金)
+        df = self._retry_get(self.pro.fund_daily, ts_code=ts_code, start_date=start_date, end_date=end_date)
+        
+        if df is None or df.empty:
+            # Fallback to etf_daily if available
+            try:
+                df = self._retry_get(self.pro.etf_daily, ts_code=ts_code, start_date=start_date, end_date=end_date)
+            except:
+                pass
         
         if df is not None and not df.empty:
             klines_data = []
@@ -512,9 +523,10 @@ def sync_daily_by_date(trade_date: str) -> int:
                     conn.execute(stmt)
             
             records = len(klines_data)
-            logger.info(f"同步 ETF {code} 日线: {records} 条")
+            logger.info(f"同步 ETF/场内基金 {code} 日线: {records} 条")
             return records
         
+        logger.warning(f"未获取到 {code} 的日线数据")
         return 0
     
     def sync_all_funds(self) -> Dict[str, int]:
