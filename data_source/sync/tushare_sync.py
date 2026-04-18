@@ -85,16 +85,19 @@ class TushareSync:
                         market = ts_code.split('.')[1]
                         
                         existing = session.query(Stock).filter(Stock.code == code).first()
+                        industry_val = row.get('industry')
+                        if pd.isna(industry_val):
+                            industry_val = ''
                         if existing:
                             existing.name = row['name']
-                            existing.industry = row.get('industry', '')
+                            existing.industry = industry_val
                             existing.stock_type = '股票'
                         else:
                             stock = Stock(
                                 code=code,
                                 name=row['name'],
                                 market=market,
-                                industry=row.get('industry', ''),
+                                industry=industry_val,
                                 list_date=row.get('list_date'),
                                 stock_type='股票'
                             )
@@ -426,3 +429,164 @@ def sync_daily_by_date(trade_date: str) -> int:
     """便捷函数：按日期同步所有股票"""
     sync = TushareSync()
     return sync.sync_daily_by_date(trade_date)
+
+
+    def sync_all_etfs(self) -> Dict[str, int]:
+        """同步所有ETF列表"""
+        result = {"added": 0}
+        
+        try:
+            df = self._retry_get(self.pro.etf_basic, list_status='L')
+            if df is not None and not df.empty:
+                with get_db_session() as session:
+                    for _, row in df.iterrows():
+                        ts_code = row['ts_code']
+                        code = ts_code.split('.')[0]
+                        
+                        existing = session.query(Stock).filter(Stock.code == code).first()
+                        if existing:
+                            existing.name = row['name']
+                            existing.stock_type = 'ETF'
+                        else:
+                            stock = Stock(
+                                code=code,
+                                name=row['name'],
+                                market=ts_code.split('.')[1],
+                                list_date=row.get('list_date'),
+                                stock_type='ETF'
+                            )
+                            session.add(stock)
+                            result["added"] += 1
+                
+                self.cache.delete(CacheKeys.stock_list())
+                logger.info(f"同步ETF列表: 新增 {result['added']} 只")
+        except Exception as e:
+            logger.error(f"同步ETF列表失败: {e}")
+        
+        return result
+    
+    def sync_etf_daily(self, code: str, start_date: str = None, end_date: str = None) -> int:
+        """同步单只ETF的日线数据"""
+        if self.pro is None:
+            return 0
+        
+        exchange = "SH" if code.startswith(("5", "6", "9")) else "SZ"
+        ts_code = f"{code}.{exchange}"
+        
+        if end_date is None:
+            end_date = datetime.now().strftime('%Y%m%d')
+        if start_date is None:
+            start_date = "20150101"
+        
+        df = self._retry_get(self.pro.etf_daily, ts_code=ts_code, start_date=start_date, end_date=end_date)
+        
+        if df is not None and not df.empty:
+            klines_data = []
+            for _, row in df.iterrows():
+                trade_date_dt = datetime.strptime(str(row['trade_date']), '%Y%m%d').date()
+                klines_data.append({
+                    'code': code,
+                    'trade_date': trade_date_dt,
+                    'open': float(row.get('open', 0) or 0),
+                    'high': float(row.get('high', 0) or 0),
+                    'low': float(row.get('low', 0) or 0),
+                    'close': float(row.get('close', 0) or 0),
+                    'volume': float(row.get('vol', 0) or 0),
+                    'amount': float(row.get('amount', 0) or 0),
+                    'adj_close': float(row.get('close', 0) or 0),
+                })
+            
+            from sqlalchemy.dialects.mysql import insert
+            with get_engine().begin() as conn:
+                for k in klines_data:
+                    stmt = insert(DailyKlineTushare).values(**k)
+                    stmt = stmt.on_duplicate_key_update(
+                        open=stmt.inserted.open,
+                        high=stmt.inserted.high,
+                        low=stmt.inserted.low,
+                        close=stmt.inserted.close,
+                        volume=stmt.inserted.volume,
+                        amount=stmt.inserted.amount,
+                        adj_close=stmt.inserted.adj_close,
+                    )
+                    conn.execute(stmt)
+            
+            records = len(klines_data)
+            logger.info(f"同步 ETF {code} 日线: {records} 条")
+            return records
+        
+        return 0
+    
+    def sync_all_funds(self) -> Dict[str, int]:
+        """同步所有基金列表"""
+        result = {"added": 0}
+        
+        try:
+            df = self._retry_get(self.pro.fund_basic, status='L')
+            if df is not None and not df.empty:
+                with get_db_session() as session:
+                    for _, row in df.iterrows():
+                        ts_code = row['ts_code']
+                        code = ts_code.split('.')[0]
+                        
+                        existing = session.query(Stock).filter(Stock.code == code, Stock.stock_type == '基金').first()
+                        if not existing:
+                            stock = Stock(
+                                code=code,
+                                name=row['name'],
+                                market=ts_code.split('.')[1],
+                                list_date=row.get('found_date'),
+                                stock_type='基金'
+                            )
+                            session.add(stock)
+                            result["added"] += 1
+                
+                logger.info(f"同步基金列表: 新增 {result['added']} 只")
+        except Exception as e:
+            logger.error(f"同步基金列表失败: {e}")
+        
+        return result
+    
+    def sync_fund_nav(self, code: str, start_date: str = None, end_date: str = None) -> int:
+        """同步单只基金的净值数据"""
+        if self.pro is None:
+            return 0
+        
+        ts_code = f"{code}.OF"
+        
+        if end_date is None:
+            end_date = datetime.now().strftime('%Y%m%d')
+        if start_date is None:
+            start_date = "20150101"
+        
+        df = self._retry_get(self.pro.fund_nav, ts_code=ts_code, start_date=start_date, end_date=end_date)
+        
+        if df is not None and not df.empty:
+            logger.info(f"同步 基金 {code} 净值: {len(df)} 条")
+            return len(df)
+        
+        return 0
+
+
+def sync_all_etfs() -> Dict[str, int]:
+    """便捷函数：同步所有ETF"""
+    sync = TushareSync()
+    return sync.sync_all_etfs()
+
+
+def sync_etf_daily(code: str, start_date: str = None) -> int:
+    """便捷函数：同步ETF日线"""
+    sync = TushareSync()
+    return sync.sync_etf_daily(code, start_date)
+
+
+def sync_all_funds() -> Dict[str, int]:
+    """便捷函数：同步所有基金"""
+    sync = TushareSync()
+    return sync.sync_all_funds()
+
+
+def sync_fund_nav(code: str, start_date: str = None) -> int:
+    """便捷函数：同步基金净值"""
+    sync = TushareSync()
+    return sync.sync_fund_nav(code, start_date)

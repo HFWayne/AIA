@@ -2,7 +2,7 @@
 
 import tushare as ts
 import pandas as pd
-from config import TU_SHARE_TOKEN
+from data_source.config import TU_SHARE_TOKEN
 
 # 1. 设置你的 Token (替换为你自己的)
 ts.set_token(TU_SHARE_TOKEN)
