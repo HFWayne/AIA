@@ -3,7 +3,7 @@
 ## 项目概述
 
 这是一个 Python 股票/基金数据分析和 DCA（定期定额投资）回测项目，提供：
-- 统一数据源接口，支持 tushare、akshare、baostock
+- 统一数据源接口 (tushare)
 - 带可视化功能的 DCA 回测引擎
 - 支持止损止盈、定投加大、收益增强策略
 - Web UI 界面 (Streamlit)
@@ -12,8 +12,7 @@
 - 自动化测试框架
 - 回测结果高级分析 (夏普比率、卡玛比率等)
 - 报告导出 (Excel/CSV)
-- 增量数据同步
-- 分级缓存策略
+- 场外基金净值同步
 
 ## 构建/测试/运行命令
 
@@ -150,6 +149,24 @@ sync.sync_daily_kline_batch(codes=['600036', '000001'], incremental=True)
 
 # 同步自选股
 sync.sync_watchlist_stocks(watchlist_codes=['600036', '000001'])
+```
+
+### 基金净值同步
+```bash
+# 前台运行
+python3 scripts/sync_fund_nav.py
+
+# 后台运行
+nohup python3 scripts/sync_fund_nav.py > logs/sync_fund_nav.log 2>&1 &
+
+# 查看进度
+python3 -c "
+from data_source.db.connection import get_db_session
+from data_source.db.models import FundNav, Stock
+with get_db_session() as s:
+    print(f'NAV记录: {s.query(FundNav).count():,}')
+    print(f'已同步: {s.query(FundNav.code).distinct().count()}')
+"
 ```
 
 ### 回测结果分析
