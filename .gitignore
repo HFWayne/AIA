@@ -6,3 +6,4 @@ apikey.py
 .venv/
 .idea
 reports/*.json
+logs/
