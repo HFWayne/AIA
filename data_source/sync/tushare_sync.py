@@ -1,609 +1,195 @@
-# -*- coding: utf-8 -*-
-"""
-tushare 数据同步服务
-优化版：按日期批量获取数据，效率更高
-"""
+import sys
+sys.path.insert(0, '/mnt/e/code/AIA')
 
-import logging
-import time
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-import tushare as ts
-import pandas as pd
-from sqlalchemy import text
-
-from data_source.config import TU_SHARE_TOKEN, REQUEST_DELAY, SYNC_CONFIG
-from data_source.db.connection import get_db_session, get_engine
-from data_source.db.models import Stock, DailyKlineTushare, Income, FinaIndicator, SyncLog
-from data_source.cache import get_cache, CacheKeys
-
-logger = logging.getLogger(__name__)
-
+import threading
+from datetime import datetime, time, timedelta
+from typing import Callable, Dict, List, Optional
+from data_source.sync.scheduler import Scheduler
 
 class TushareSync:
-    """tushare 数据同步器（优化版）"""
+    """Tushare 数据同步"""
 
     def __init__(self):
-        self.token = TU_SHARE_TOKEN
-        self.pro = None
-        self.cache = get_cache()
-        self._init_pro()
+        self._tasks: List[Dict] = []
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+        self._lock = threading.Lock()
 
-    def _init_pro(self):
-        """初始化 tushare pro"""
-        try:
-            ts.set_token(self.token)
-            self.pro = ts.pro_api()
-            logger.debug("tushare pro API 初始化成功")
-        except Exception as e:
-            logger.error(f"tushare pro API 初始化失败: {e}")
-
-    def _apply_delay(self):
-        """请求延时"""
-        if REQUEST_DELAY > 0:
-            time.sleep(REQUEST_DELAY)
-
-    def _retry_get(self, func, *args, max_retries: int = 3, **kwargs):
-        """带重试的获取"""
-        for i in range(max_retries):
-            try:
-                self._apply_delay()
-                return func(*args, **kwargs)
-            except Exception as e:
-                if i < max_retries - 1:
-                    time.sleep(1)
-                    logger.warning(f"重试 {i+1}: {e}")
-                else:
-                    logger.error(f"获取失败: {e}")
-                    return None
-
-    def get_trade_cal(self, start_date: str, end_date: str) -> List[str]:
-        """获取交易日历"""
-        df = self._retry_get(self.pro.trade_cal, 
-                           exchange='SSE', 
-                           start_date=start_date, 
-                           end_date=end_date,
-                           is_open='1')
-        if df is not None and not df.empty:
-            return df['cal_date'].tolist()
-        return []
-
-    def sync_all_stocks(self) -> Dict[str, int]:
-        """同步所有股票列表"""
-        result = {"stocks": 0, "etfs": 0}
-        
-        try:
-            df = self._retry_get(self.pro.stock_basic, list_status='L')
-            if df is not None and not df.empty:
-                stocks_added = 0
-                with get_db_session() as session:
-                    for _, row in df.iterrows():
-                        ts_code = row['ts_code']
-                        code = ts_code.split('.')[0]
-                        market = ts_code.split('.')[1]
-                        
-                        existing = session.query(Stock).filter(Stock.code == code).first()
-                        industry_val = row.get('industry')
-                        if pd.isna(industry_val):
-                            industry_val = ''
-                        if existing:
-                            existing.name = row['name']
-                            existing.industry = industry_val
-                            existing.stock_type = '股票'
-                        else:
-                            stock = Stock(
-                                code=code,
-                                name=row['name'],
-                                market=market,
-                                industry=industry_val,
-                                list_date=row.get('list_date'),
-                                stock_type='股票'
-                            )
-                            session.add(stock)
-                            stocks_added += 1
-                result["stocks"] = stocks_added
-                logger.info(f"同步股票列表: 新增 {stocks_added} 只")
-
-            df_etf = self._retry_get(self.pro.fund_basic, market='E')
-            if df_etf is not None and not df_etf.empty:
-                etfs_added = 0
-                with get_db_session() as session:
-                    for _, row in df_etf.iterrows():
-                        ts_code = row['ts_code']
-                        code = ts_code.split('.')[0]
-                        market = ts_code.split('.')[1]
-                        
-                        existing = session.query(Stock).filter(Stock.code == code).first()
-                        if existing:
-                            existing.name = row['name']
-                            existing.stock_type = 'ETF'
-                        else:
-                            stock = Stock(
-                                code=code,
-                                name=row['name'],
-                                market=market,
-                                list_date=row.get('found_date'),
-                                stock_type='ETF'
-                            )
-                            session.add(stock)
-                            etfs_added += 1
-                result["etfs"] = etfs_added
-                logger.info(f"同步ETF列表: 新增 {etfs_added} 只")
-                
-        except Exception as e:
-            logger.error(f"同步股票列表失败: {e}")
-        
-        self.cache.delete(CacheKeys.stock_list())
-        return result
-
-    def sync_daily_by_date(self, trade_date: str) -> int:
-        """按日期获取所有股票的日线数据（高效方式）"""
-        df = self._retry_get(self.pro.daily, trade_date=trade_date)
-        if df is None or df.empty:
-            return 0
-
-        records = 0
-        klines_data = []
-
-        for _, row in df.iterrows():
-            ts_code = row['ts_code']
-            code = ts_code.split('.')[0]
-            trade_date_dt = datetime.strptime(str(row['trade_date']), '%Y%m%d').date()
-
-            klines_data.append({
-                'code': code,
-                'trade_date': trade_date_dt,
-                'open': row.get('open', 0),
-                'high': row.get('high', 0),
-                'low': row.get('low', 0),
-                'close': row.get('close', 0),
-                'volume': row.get('vol', 0),
-                'amount': row.get('amount', 0),
-                'adj_close': row.get('close', 0),
-                'turn': row.get('turnover', 0),
-                'pct_chg': row.get('pct_chg', 0) / 100 if row.get('pct_chg') else 0
+    def add_daily_task(self, task_id: str, run_time: "time", func: Callable, *args, **kwargs):
+        """添加每日定时任务"""
+        with self._lock:
+            if any(t['id'] == task_id for t in self._tasks):
+                logger.warning(f"任务已存在: {task_id}")
+                return
+            self._tasks.append({
+                'id': task_id,
+                'type': 'daily',
+                'time': run_time,
+                'interval_minutes': None,
+                'func': func,
+                'args': args,
+                'kwargs': kwargs,
+                'last_run': None,
+                'last_interval_run': None
             })
+            logger.info(f"添加每日任务: {task_id}, 时间: {run_time}")
 
-        if klines_data:
-            df_kline = pd.DataFrame(klines_data)
+    def add_interval_task(self, task_id: str, interval_minutes: int, func: Callable, *args, **kwargs):
+        """添加间隔任务"""
+        with self._lock:
+            if any(t['id'] == task_id for t in self._tasks):
+                logger.warning(f"任务已存在: {task_id}")
+                return
+            self._tasks.append({
+                'id': task_id,
+                'type': 'interval',
+                'time': None,
+                'interval_minutes': interval_minutes,
+                'func': func,
+                'args': args,
+                'kwargs': kwargs,
+                'last_run': None,
+                'last_interval_run': None
+            })
+            logger.info(f"添加间隔任务: {task_id}, 间隔: {interval_minutes}分钟")
 
-            engine = get_engine()
-            df_kline.to_sql('daily_kline_tushare', engine, if_exists='append', index=False, chunksize=5000)
+    def remove_task(self, task_id: str):
+        """移除任务"""
+        with self._lock:
+            self._tasks = [t for t in self._tasks if t['id'] != task_id]
+            logger.info(f"移除任务: {task_id}")
 
-            records = len(df_kline)
-
-            for code in df_kline['code'].unique():
-                cache_key = CacheKeys.kline_range(code, trade_date, trade_date, source="tushare")
-                if self.cache:
-                    self.cache.delete(cache_key)
-
-        return records
-
-    def sync_daily_kline(self, code: str, start_date: str = None, end_date: str = None) -> int:
-        """同步单只股票的日线数据"""
-        if self.pro is None:
-            logger.error("tushare pro API 未初始化")
-            return 0
-        
-        records = 0
-        exchange = "SH" if code.startswith(("5", "6", "9")) else "SZ"
-        ts_code = f"{code}.{exchange}"
-        
-        if end_date is None:
-            end_date = datetime.now().strftime('%Y%m%d')
-        if start_date is None:
-            start_date = "20000101"
-        
-        df = self._retry_get(self.pro.daily, ts_code=ts_code, start_date=start_date, end_date=end_date, adj='hfq')
-        
-        if df is not None and not df.empty:
-            klines_data = []
-            for _, row in df.iterrows():
-                trade_date_dt = datetime.strptime(str(row['trade_date']), '%Y%m%d').date()
-                klines_data.append({
-                    'code': code,
-                    'trade_date': trade_date_dt,
-                    'open': row.get('open', 0),
-                    'high': row.get('high', 0),
-                    'low': row.get('low', 0),
-                    'close': row.get('close', 0),
-                    'volume': row.get('vol', 0),
-                    'amount': row.get('amount', 0),
-                    'adj_close': row.get('close', 0),
-                    'turn': row.get('turnover', 0),
-                    'pct_chg': row.get('pct_chg', 0) / 100 if row.get('pct_chg') else 0
-                })
-            
-            df_kline = pd.DataFrame(klines_data)
-            df_kline.to_sql('daily_kline_tushare', get_engine(), if_exists='append', index=False, chunksize=5000)
-            records = len(df_kline)
-            
-            cache_key = CacheKeys.kline_range(code, start_date, end_date)
-            self.cache.delete(cache_key)
-            logger.info(f"同步 {code} 日线数据: {records} 条")
-        else:
-            logger.warning(f"未获取到 {code} 的日线数据")
-        
-        return records
-
-    def sync_daily_date_range(self, start_date: str, end_date: str, workers: int = 5) -> Dict[str, int]:
-        """按日期范围批量同步所有股票日线数据（推荐方式）"""
-        logger.info(f"开始批量同步: {start_date} ~ {end_date}")
-        
-        trade_dates = self.get_trade_cal(start_date, end_date)
-        if not trade_dates:
-            logger.warning("未获取到交易日历")
-            return {"dates": 0, "records": 0}
-        
-        total_records = 0
-        total_dates = len(trade_dates)
-        
-        for i, date in enumerate(trade_dates, 1):
+    def run_task_now(self, task_id: str):
+        """立即执行任务"""
+        with self._lock:
+            task = next((t for t in self._tasks if t['id'] == task_id), None)
+        if task:
             try:
-                records = self.sync_daily_by_date(date)
-                total_records += records
-                if i % 50 == 0:
-                    logger.info(f"进度: {i}/{total_dates} ({i*100//total_dates}%) - {records} 条")
+                logger.info(f"手动执行任务: {task_id}")
+                task['func'](*task['args'], **task['kwargs'])
+                task['last_run'] = datetime.now()
+                if task['type'] == 'interval':
+                    task['last_interval_run'] = datetime.now()
+                logger.info(f"手动任务完成: {task_id}")
             except Exception as e:
-                logger.warning(f"同步 {date} 失败: {e}")
-        
-        logger.info(f"批量同步完成: {total_dates} 天, {total_records} 条记录")
-        return {"dates": total_dates, "records": total_records}
+                logger.error(f"手动任务执行失败 {task_id}: {e}")
 
-    def sync_income(self, code: str) -> int:
-        """同步利润表数据"""
-        if self.pro is None:
-            return 0
-        
-        exchange = "SH" if code.startswith(("5", "6", "9")) else "SZ"
-        ts_code = f"{code}.{exchange}"
-        
-        df = self._retry_get(self.pro.income, ts_code=ts_code)
-        
-        if df is not None and not df.empty:
-            income_data = []
-            for _, row in df.iterrows():
-                income_data.append({
-                    'code': code,
-                    'ann_date': row.get('ann_date'),
-                    'end_date': row.get('end_date'),
-                    'report_type': row.get('report_type'),
-                    'total_revenue': row.get('total_revenue'),
-                    'oper_profit': row.get('oper_profit'),
-                    'net_profit': row.get('net_profit'),
-                    'total_revenue_yoy': row.get('total_revenue_yoy'),
-                    'net_profit_yoy': row.get('net_profit_yoy'),
-                })
-            
-            df_income = pd.DataFrame(income_data)
-            df_income.to_sql('income', get_engine(), if_exists='append', index=False, chunksize=5000)
-            logger.info(f"同步 {code} 利润表: {len(df_income)} 条")
-            return len(df_income)
-        
-        return 0
+    def start(self):
+        """启动调度器"""
+        if self._running:
+            logger.warning("调度器已在运行")
+            return
 
-    def sync_fina_indicator(self, code: str) -> int:
-        """同步主要财务指标"""
-        if self.pro is None:
-            return 0
-        
-        exchange = "SH" if code.startswith(("5", "6", "9")) else "SZ"
-        ts_code = f"{code}.{exchange}"
-        
-        df = self._retry_get(self.pro.fina_indicator, ts_code=ts_code)
-        
-        if df is not None and not df.empty:
-            indicator_data = []
-            for _, row in df.iterrows():
-                indicator_data.append({
-                    'code': code,
-                    'ann_date': row.get('ann_date'),
-                    'end_date': row.get('end_date'),
-                    'roe': row.get('roe'),
-                    'net_profit_margin': row.get('netprofit_margin'),
-                    'gross_profit_margin': row.get('gross_margin'),
-                    'debt_to_assets': row.get('debt_to_assets'),
-                    'current_ratio': row.get('current_ratio'),
-                    'quick_ratio': row.get('quick_ratio'),
-                    'pe_ttm': row.get('pe'),
-                    'pb': row.get('pb'),
-                    'ps_ttm': row.get('ps'),
-                })
-            
-            df_indicator = pd.DataFrame(indicator_data)
-            df_indicator.to_sql('fina_indicator', get_engine(), if_exists='append', index=False, chunksize=5000)
-            logger.info(f"同步 {code} 财务指标: {len(df_indicator)} 条")
-            return len(df_indicator)
-        
-        return 0
+        self._running = True
+        self._thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._thread.start()
+        logger.info("调度器已启动")
 
-    def get_latest_date(self, code: str) -> Optional[str]:
-        """获取数据库中最新日期"""
-        try:
-            with get_db_session() as session:
-                latest = session.query(DailyKlineTushare).filter(
-                    DailyKlineTushare.code == code
-                ).order_by(DailyKlineTushare.trade_date.desc()).first()
-                if latest:
-                    return str(latest.trade_date)
-        except Exception as e:
-            logger.warning(f"获取 {code} 最新日期失败: {e}")
+    def stop(self):
+        """停止调度器"""
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=5)
+        logger.info("调度器已停止")
+
+    def _run_loop(self):
+        """调度循环"""
+        while self._running:
+            now = datetime.now()
+            current_time = now.time()
+
+            with self._lock:
+                tasks_to_run = []
+                for task in self._tasks:
+                    should_run = False
+
+                    if task['type'] == 'daily':
+                        task_time = task['time']
+                        last_run = task['last_run']
+                        if last_run is None:
+                            should_run = True
+                        else:
+                            last_run_date = last_run.date()
+                            if last_run_date < now.date() and current_time >= task_time:
+                                should_run = True
+                    elif task['type'] == 'interval':
+                        interval_minutes = task['interval_minutes']
+                        last_run = task.get('last_interval_run') or task['last_run']
+                        if last_run is None:
+                            should_run = True
+                        else:
+                            elapsed = now - last_run
+                            if elapsed >= timedelta(minutes=interval_minutes):
+                                should_run = True
+
+                    if should_run:
+                        tasks_to_run.append(task)
+
+            for task in tasks_to_run:
+                try:
+                    logger.info(f"执行任务: {task['id']}")
+                    task['func'](*task['args'], **task['kwargs'])
+                    task['last_run'] = now
+                    if task['type'] == 'interval':
+                        task['last_interval_run'] = now
+                    logger.info(f"任务完成: {task['id']}")
+                except Exception as e:
+                    logger.error(f"任务执行失败 {task['id']}: {e}")
+
+            threading.Event().wait(30)
+
+    def get_status(self) -> dict:
+        """获取调度器状态"""
+        with self._lock:
+            return {
+                'running': self._running,
+                'tasks': [
+                    {
+                        'id': t['id'],
+                        'type': t['type'],
+                        'time': str(t['time']) if t['time'] else None,
+                        'interval_minutes': t['interval_minutes'],
+                        'last_run': t['last_run'].isoformat() if t['last_run'] else None,
+                        'next_run': self._get_next_run(t)
+                    }
+                    for t in self._tasks
+                ]
+            }
+
+    def _get_next_run(self, task: dict) -> Optional[str]:
+        """计算任务下次执行时间"""
+        now = datetime.now()
+
+        if task['type'] == 'daily':
+            task_time = task['time']
+            last_run = task['last_run']
+            if last_run is None or last_run.date() < now.date():
+                today_target = now.replace(hour=task_time.hour, minute=task_time.minute, second=0, microsecond=0)
+                if now < today_target:
+                    return today_target.isoformat()
+                else:
+                    return (today_target + timedelta(days=1)).isoformat()
+            return None
+
+        elif task['type'] == 'interval':
+            interval_minutes = task['interval_minutes']
+            last_run = task.get('last_interval_run') or task['last_run']
+            if last_run is None:
+                return now.isoformat()
+            next_run = last_run + timedelta(minutes=interval_minutes)
+            if next_run < now:
+                return now.isoformat()
+            return next_run.isoformat()
+
         return None
 
-    def get_stock_count(self) -> int:
-        """获取数据库中股票数量"""
-        try:
-            with get_db_session() as session:
-                return session.query(Stock).count()
-        except:
-            return 0
 
-    def get_kline_count(self) -> int:
-        """获取数据库中日线数据数量"""
-        try:
-            with get_db_session() as session:
-                return session.query(DailyKlineTushare).count()
-        except:
-            return 0
-
-    def get_missing_trade_dates(self, start_date: str = None, end_date: str = None) -> List[str]:
-        """检测缺失的交易日，返回需要补齐的日期列表"""
-        try:
-            end = end_date or datetime.now().strftime('%Y%m%d')
-            start = start_date or "20000101"
-
-            all_trade_dates = set(self.get_trade_cal(start, end))
-
-            with get_db_session() as session:
-                existing_result = session.query(DailyKlineTushare.trade_date).distinct().all()
-                existing_dates = set(str(d[0]) for d in existing_result)
-
-            missing_dates = sorted(all_trade_dates - existing_dates)
-
-            if missing_dates:
-                logger.info(f"检测到 {len(missing_dates)} 天缺失数据需要补齐")
-                if len(missing_dates) <= 10:
-                    logger.info(f"缺失日期: {missing_dates}")
-                else:
-                    logger.info(f"缺失日期: {missing_dates[:5]} ... {missing_dates[-5:]}")
-
-            return missing_dates
-        except Exception as e:
-            logger.warning(f"检测缺失日期失败: {e}")
-            return []
-
-    def sync_missing_data(self, days_back: int = 30) -> Dict[str, int]:
-        """自动检测并补齐缺失的数据（默认检测最近30天）"""
-        end_date = datetime.now().strftime('%Y%m%d')
-        start_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y%m%d')
-        
-        missing_dates = self.get_missing_trade_dates(start_date, end_date)
-        
-        if not missing_dates:
-            logger.info("没有缺失数据需要补齐")
-            return {"dates": 0, "records": 0}
-        
-        total_records = 0
-        total_dates = len(missing_dates)
-        
-        logger.info(f"开始补齐 {total_dates} 天的缺失数据...")
-        
-        for i, date in enumerate(missing_dates, 1):
-            try:
-                records = self.sync_daily_by_date(date)
-                total_records += records
-                if i % 10 == 0:
-                    logger.info(f"补齐进度: {i}/{total_dates} ({i*100//total_dates}%)")
-            except Exception as e:
-                logger.warning(f"补齐 {date} 失败: {e}")
-        
-        logger.info(f"补齐完成: {total_dates} 天, {total_records} 条记录")
-        return {"dates": total_dates, "records": total_records}
-
-    def get_data_range(self) -> Dict[str, str]:
-        """获取数据库中数据的日期范围"""
-        try:
-            with get_db_session() as session:
-                oldest = session.query(DailyKlineTushare.trade_date).order_by(DailyKlineTushare.trade_date.asc()).first()
-                newest = session.query(DailyKlineTushare.trade_date).order_by(DailyKlineTushare.trade_date.desc()).first()
-                
-            return {
-                "start": str(oldest[0]) if oldest else None,
-                "end": str(newest[0]) if newest else None
-            }
-        except Exception as e:
-            logger.warning(f"获取数据范围失败: {e}")
-            return {"start": None, "end": None}
+_scheduler = None
 
 
-def sync_all_stocks() -> Dict[str, int]:
-    """便捷函数：同步所有股票"""
-    sync = TushareSync()
-    return sync.sync_all_stocks()
-
-
-def sync_stock_daily(code: str, start_date: str = None) -> int:
-    """便捷函数：同步单只股票日线"""
-    sync = TushareSync()
-    return sync.sync_daily_kline(code, start_date)
-
-
-def sync_daily_by_date(trade_date: str) -> int:
-    """便捷函数：按日期同步所有股票"""
-    sync = TushareSync()
-    return sync.sync_daily_by_date(trade_date)
-
-
-    def sync_all_etfs(self) -> Dict[str, int]:
-        """同步所有ETF列表"""
-        result = {"added": 0}
-        
-        try:
-            df = self._retry_get(self.pro.etf_basic, list_status='L')
-            if df is not None and not df.empty:
-                with get_db_session() as session:
-                    for _, row in df.iterrows():
-                        ts_code = row['ts_code']
-                        code = ts_code.split('.')[0]
-                        
-                        existing = session.query(Stock).filter(Stock.code == code).first()
-                        if existing:
-                            existing.name = row['name']
-                            existing.stock_type = 'ETF'
-                        else:
-                            stock = Stock(
-                                code=code,
-                                name=row['name'],
-                                market=ts_code.split('.')[1],
-                                list_date=row.get('list_date'),
-                                stock_type='ETF'
-                            )
-                            session.add(stock)
-                            result["added"] += 1
-                
-                self.cache.delete(CacheKeys.stock_list())
-                logger.info(f"同步ETF列表: 新增 {result['added']} 只")
-        except Exception as e:
-            logger.error(f"同步ETF列表失败: {e}")
-        
-        return result
-    
-    def sync_etf_daily(self, code: str, start_date: str = None, end_date: str = None) -> int:
-        """同步单只ETF/场内基金的日线数据"""
-        if self.pro is None:
-            return 0
-        
-        # Determine exchange from code prefix
-        if code.startswith('5') or code.startswith('6') or code.startswith('9'):
-            ts_code = f"{code}.SH"
-        else:
-            ts_code = f"{code}.SZ"
-        
-        if end_date is None:
-            end_date = datetime.now().strftime('%Y%m%d')
-        if start_date is None:
-            start_date = "20150101"
-        
-        # Try fund_daily first (works for both ETFs and场内基金)
-        df = self._retry_get(self.pro.fund_daily, ts_code=ts_code, start_date=start_date, end_date=end_date)
-        
-        if df is None or df.empty:
-            # Fallback to etf_daily if available
-            try:
-                df = self._retry_get(self.pro.etf_daily, ts_code=ts_code, start_date=start_date, end_date=end_date)
-            except:
-                pass
-        
-        if df is not None and not df.empty:
-            klines_data = []
-            for _, row in df.iterrows():
-                trade_date_dt = datetime.strptime(str(row['trade_date']), '%Y%m%d').date()
-                klines_data.append({
-                    'code': code,
-                    'trade_date': trade_date_dt,
-                    'open': float(row.get('open', 0) or 0),
-                    'high': float(row.get('high', 0) or 0),
-                    'low': float(row.get('low', 0) or 0),
-                    'close': float(row.get('close', 0) or 0),
-                    'volume': float(row.get('vol', 0) or 0),
-                    'amount': float(row.get('amount', 0) or 0),
-                    'adj_close': float(row.get('close', 0) or 0),
-                })
-            
-            from sqlalchemy.dialects.mysql import insert
-            with get_engine().begin() as conn:
-                for k in klines_data:
-                    stmt = insert(DailyKlineTushare).values(**k)
-                    stmt = stmt.on_duplicate_key_update(
-                        open=stmt.inserted.open,
-                        high=stmt.inserted.high,
-                        low=stmt.inserted.low,
-                        close=stmt.inserted.close,
-                        volume=stmt.inserted.volume,
-                        amount=stmt.inserted.amount,
-                        adj_close=stmt.inserted.adj_close,
-                    )
-                    conn.execute(stmt)
-            
-            records = len(klines_data)
-            logger.info(f"同步 ETF/场内基金 {code} 日线: {records} 条")
-            return records
-        
-        logger.warning(f"未获取到 {code} 的日线数据")
-        return 0
-    
-    def sync_all_funds(self) -> Dict[str, int]:
-        """同步所有基金列表"""
-        result = {"added": 0}
-        
-        try:
-            df = self._retry_get(self.pro.fund_basic, status='L')
-            if df is not None and not df.empty:
-                with get_db_session() as session:
-                    for _, row in df.iterrows():
-                        ts_code = row['ts_code']
-                        code = ts_code.split('.')[0]
-                        
-                        existing = session.query(Stock).filter(Stock.code == code, Stock.stock_type == '基金').first()
-                        if not existing:
-                            stock = Stock(
-                                code=code,
-                                name=row['name'],
-                                market=ts_code.split('.')[1],
-                                list_date=row.get('found_date'),
-                                stock_type='基金'
-                            )
-                            session.add(stock)
-                            result["added"] += 1
-                
-                logger.info(f"同步基金列表: 新增 {result['added']} 只")
-        except Exception as e:
-            logger.error(f"同步基金列表失败: {e}")
-        
-        return result
-    
-    def sync_fund_nav(self, code: str, start_date: str = None, end_date: str = None) -> int:
-        """同步单只基金的净值数据"""
-        if self.pro is None:
-            return 0
-        
-        ts_code = f"{code}.OF"
-        
-        if end_date is None:
-            end_date = datetime.now().strftime('%Y%m%d')
-        if start_date is None:
-            start_date = "20150101"
-        
-        df = self._retry_get(self.pro.fund_nav, ts_code=ts_code, start_date=start_date, end_date=end_date)
-        
-        if df is not None and not df.empty:
-            logger.info(f"同步 基金 {code} 净值: {len(df)} 条")
-            return len(df)
-        
-        return 0
-
-
-def sync_all_etfs() -> Dict[str, int]:
-    """便捷函数：同步所有ETF"""
-    sync = TushareSync()
-    return sync.sync_all_etfs()
-
-
-def sync_etf_daily(code: str, start_date: str = None) -> int:
-    """便捷函数：同步ETF日线"""
-    sync = TushareSync()
-    return sync.sync_etf_daily(code, start_date)
-
-
-def sync_all_funds() -> Dict[str, int]:
-    """便捷函数：同步所有基金"""
-    sync = TushareSync()
-    return sync.sync_all_funds()
-
-
-def sync_fund_nav(code: str, start_date: str = None) -> int:
-    """便捷函数：同步基金净值"""
-    sync = TushareSync()
-    return sync.sync_fund_nav(code, start_date)
+def get_scheduler() -> Scheduler:
+    """获取调度器实例"""
+    global _scheduler
+    if _scheduler is None:
+        _scheduler = Scheduler()
+    return _scheduler
