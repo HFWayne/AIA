@@ -23,6 +23,10 @@ class PlotlyVisualizer:
         trades = result.trades.copy()
         trades['date'] = pd.to_datetime(trades['date'])
 
+        has_ohlc = result.nav_data is not None and all(col in result.nav_data.columns for col in ['open', 'high', 'low', 'close'])
+
+        subplot_4_type = "Candlestick" if has_ohlc else "scatter"
+
         fig = make_subplots(
             rows=2, cols=2,
             subplot_titles=('投入与收益曲线', '收益率走势', '净值走势', 'K线图'),
@@ -30,7 +34,7 @@ class PlotlyVisualizer:
             horizontal_spacing=0.08,
             specs=[
                 [{"type": "scatter"}, {"type": "scatter"}],
-                [{"type": "scatter"}, {"type": "Candlestick"} if result.nav_data is not None and all(col in result.nav_data.columns for col in ['open', 'high', 'low', 'close']) else [{"type": "scatter"}]]
+                [{"type": "scatter"}, {"type": subplot_4_type}]
             ]
         )
 
