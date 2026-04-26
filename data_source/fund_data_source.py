@@ -93,7 +93,7 @@ class FundDataSource:
             time.sleep(self.request_delay)
 
     def _get_source_priority(self) -> List[str]:
-        """获取数据源优先级 - 只使用 tushare"""
+        """获取数据源优先级"""
         return ["tushare"]
 
     def _get_kline_model(self, source: str):
@@ -103,6 +103,43 @@ class FundDataSource:
     def _get_table_name(self, source: str) -> str:
         """获取表名"""
         return "daily_kline_tushare"
+
+    def _query_local(
+        self,
+        fund_code: str,
+        start_dt: datetime,
+        end_dt: datetime,
+        source: str
+    ) -> Optional[pd.DataFrame]:
+        """从本地数据库查询"""
+        if not self._db_available:
+            return None
+
+        cache_key = CacheKeys.kline_range(fund_code, str(start_dt.strftime('%Y%m%d')), 
+                                          str(end_dt.strftime('%Y%m%d')), source)
+        
+        if self.cache:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                return pd.DataFrame(cached)
+
+        try:
+            with get_db_session() as session:
+                Model = self._get_kline_model(source)
+                klines = session.query(Model).filter(
+                    Model.code == fund_code,
+                    Model.trade_date >= start_dt.date(),
+                    Model.trade_date <= end_dt.date()
+                ).order_by(Model.trade_date).all()
+
+                if klines:
+                    df = pd.DataFrame([k.to_dict() for k in klines])
+                    if self.cache:
+                        self.cache.set(cache_key, df.to_dict('records'), expire=3600)
+                    return df
+        except Exception as e:
+            logger.warning(f"查询本地数据库({source})失败: {e}")
+        return None
 
     def get_fund_data(
         self,
