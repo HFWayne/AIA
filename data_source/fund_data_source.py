@@ -20,12 +20,16 @@ from data_source.config import (
     AVAILABLE_SOURCES, ENABLE_MYSQL
 )
 from data_source.db.connection import get_db_session, get_engine
-from data_source.db.models import Stock, DailyKlineTushare
+from data_source.db.models import Stock, DailyKlineTushare, FundNav
 from data_source.cache import get_cache, CacheKeys
 from data_source.sync.tushare_sync import TushareSync
 from data_source.logger import setup_logger
 
 logger = setup_logger('fund_data_source')
+
+CODE_TYPE_FUND = 'fund'
+CODE_TYPE_ETF = 'etf'
+CODE_TYPE_STOCK = 'stock'
 
 
 class FundDataSource:
@@ -49,6 +53,21 @@ class FundDataSource:
         except Exception as e:
             logger.warning(f"数据库不可用: {e}")
             return False
+
+    def _get_code_type(self, fund_code: str) -> str:
+        """判断代码类型
+
+        Returns:
+            'fund': 场外基金 (以 16 开头)
+            'etf': 场内ETF (以 5/1/4 开头)
+            'stock': 股票 (其他)
+        """
+        if fund_code.startswith('16'):
+            return CODE_TYPE_FUND
+        elif fund_code.startswith(('5', '1', '4')):
+            return CODE_TYPE_ETF
+        else:
+            return CODE_TYPE_STOCK
 
     def _init_tushare(self):
         """初始化 tushare"""
@@ -85,28 +104,41 @@ class FundDataSource:
         end_date: str
     ) -> Optional[pd.DataFrame]:
         """获取基金数据，支持回退机制
-        
-        1. 优先从本地数据库查询
-        2. 未命中则从 API 获取
-        3. API 失败时自动回退到备用数据源
+
+        1. 自动识别代码类型（股票/ETF/场外基金）
+        2. 根据类型从不同表查询
+        3. 未命中则从 API 获取
         """
+        code_type = self._get_code_type(fund_code)
         start_dt = datetime.strptime(start_date, '%Y%m%d') if start_date else datetime(2000, 1, 1)
         end_dt = datetime.strptime(end_date, '%Y%m%d') if end_date else datetime.now()
 
-        sources = self._get_source_priority()
-        
-        for source in sources:
-            df = self._query_local(fund_code, start_dt, end_dt, source)
+        if code_type == CODE_TYPE_FUND:
+            df = self._query_fund_nav_local(fund_code, start_dt, end_dt)
             if df is not None and not df.empty:
-                logger.info(f"从本地数据库({source})获取 {fund_code}: {len(df)} 条")
+                logger.info(f"从本地(fund_nav)获取 {fund_code}: {len(df)} 条")
                 return df
 
-        for source in sources:
-            df = self._fetch_from_api(fund_code, start_date, end_date, source)
+            df = self._fetch_fund_nav_from_api(fund_code, start_date, end_date)
             if df is not None and not df.empty:
-                self._save_to_database(fund_code, df, source, start_date, end_date)
-                logger.info(f"从 API({source})获取并存储 {fund_code}: {len(df)} 条")
+                self._save_fund_nav_to_database(fund_code, df)
+                logger.info(f"从 API 获取并存储 {fund_code}: {len(df)} 条")
                 return df
+        else:
+            sources = self._get_source_priority()
+
+            for source in sources:
+                df = self._query_local(fund_code, start_dt, end_dt, source)
+                if df is not None and not df.empty:
+                    logger.info(f"从本地数据库({source})获取 {fund_code}: {len(df)} 条")
+                    return df
+
+            for source in sources:
+                df = self._fetch_from_api(fund_code, start_date, end_date, source)
+                if df is not None and not df.empty:
+                    self._save_to_database(fund_code, df, source, start_date, end_date)
+                    logger.info(f"从 API({source})获取并存储 {fund_code}: {len(df)} 条")
+                    return df
 
         logger.error(f"所有数据源都无法获取 {fund_code}")
         return None
@@ -151,6 +183,113 @@ class FundDataSource:
         except Exception as e:
             logger.warning(f"查询本地数据库({source})失败: {e}")
         return None
+
+    def _query_fund_nav_local(
+        self,
+        fund_code: str,
+        start_dt: datetime,
+        end_dt: datetime
+    ) -> Optional[pd.DataFrame]:
+        """从 fund_nav 表查询场外基金数据"""
+        if not self._db_available:
+            return None
+
+        cache_key = f"fund_nav:{fund_code}:{start_dt.strftime('%Y%m%d')}:{end_dt.strftime('%Y%m%d')}"
+
+        if self.cache:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                return pd.DataFrame(cached)
+
+        try:
+            with get_db_session() as session:
+                navs = session.query(FundNav).filter(
+                    FundNav.code == fund_code,
+                    FundNav.nav_date >= start_dt.date(),
+                    FundNav.nav_date <= end_dt.date()
+                ).order_by(FundNav.nav_date).all()
+
+                if navs:
+                    df = pd.DataFrame([{
+                        'date': n.nav_date.strftime('%Y%m%d') if hasattr(n.nav_date, 'strftime') else str(n.nav_date),
+                        'nav': float(n.unit_nav) if n.unit_nav else 0.0,
+                        'accum_nav': float(n.accum_nav) if n.accum_nav else 0.0,
+                    } for n in navs])
+                    if self.cache:
+                        self.cache.set(cache_key, df.to_dict('records'), expire=3600)
+                    return df
+        except Exception as e:
+            logger.warning(f"查询 fund_nav 表失败: {e}")
+        return None
+
+    def _fetch_fund_nav_from_api(
+        self,
+        fund_code: str,
+        start_date: str,
+        end_date: str
+    ) -> Optional[pd.DataFrame]:
+        """从 tushare pro.fund_nav() 获取场外基金数据"""
+        if self.pro is None:
+            logger.warning("tushare pro API 未初始化")
+            return None
+
+        for retry in range(self.max_retries):
+            try:
+                self._apply_delay()
+                df = self.pro.fund_nav(
+                    ts_code=f"{fund_code}.OF",
+                    start_date=start_date,
+                    end_date=end_date
+                )
+
+                if df is None or df.empty:
+                    continue
+
+                result = pd.DataFrame()
+                result['date'] = df['nav_date'].astype(str)
+                result['nav'] = df['unit_nav'].astype(float)
+                result['accum_nav'] = df['accum_nav'].astype(float)
+
+                return result.sort_values('date').reset_index(drop=True)
+
+            except Exception as e:
+                logger.warning(f"获取场外基金 {fund_code} 失败 (retry {retry+1}): {e}")
+                time.sleep(1)
+
+        return None
+
+    def _save_fund_nav_to_database(self, fund_code: str, df: pd.DataFrame):
+        """保存场外基金数据到 fund_nav 表"""
+        if not self._db_available or df is None or df.empty:
+            return
+
+        try:
+            with get_db_session() as session:
+                for _, row in df.iterrows():
+                    nav_date = row['date']
+                    if isinstance(nav_date, str):
+                        nav_date = datetime.strptime(nav_date[:8], '%Y%m%d').date()
+
+                    sql = text("""
+                        INSERT IGNORE INTO fund_nav
+                        (code, ts_code, nav_date, unit_nav, accum_nav, update_flag)
+                        VALUES (:code, :ts_code, :nav_date, :unit_nav, :accum_nav, :update_flag)
+                    """)
+                    session.execute(sql, {
+                        'code': fund_code,
+                        'ts_code': f"{fund_code}.OF",
+                        'nav_date': nav_date,
+                        'unit_nav': float(row.get('nav', 0)),
+                        'accum_nav': float(row.get('accum_nav', 0)),
+                        'update_flag': 'N'
+                    })
+
+            cache_key = f"fund_nav:{fund_code}"
+            if self.cache:
+                self.cache.delete(cache_key)
+
+        except Exception as e:
+            logger.warning(f"保存 fund_nav 失败: {e}")
 
     def _fetch_from_api(
         self,
