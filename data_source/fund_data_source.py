@@ -9,7 +9,7 @@ import logging
 import time
 import random
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List
 
 import tushare as ts
@@ -103,80 +103,127 @@ class FundDataSource:
         start_date: str,
         end_date: str
     ) -> Optional[pd.DataFrame]:
-        """获取基金数据，支持回退机制
-
-        1. 自动尝试 fund_nav 表（场外基金）
-        2. 回退到 daily_kline 表（股票/ETF）
-        3. 未命中则从 API 获取
+        """三级缓存获取数据：
+        1. Redis 缓存（快速返回）
+        2. MySQL 数据库（检查完整性，不完整则补充）
+        3. Tushare API（最终数据源）
         """
         start_dt = datetime.strptime(start_date, '%Y%m%d') if start_date else datetime(2000, 1, 1)
         end_dt = datetime.strptime(end_date, '%Y%m%d') if end_date else datetime.now()
 
-        df = self._query_fund_nav_local(fund_code, start_dt, end_dt)
-        if df is not None and not df.empty:
-            logger.info(f"从 fund_nav 获取 {fund_code}: {len(df)} 条")
-            return df
+        df = self._query_database(fund_code, start_dt, end_dt)
 
-        df = self._query_local(fund_code, start_dt, end_dt, "tushare")
         if df is not None and not df.empty:
-            logger.info(f"从 daily_kline 获取 {fund_code}: {len(df)} 条")
-            return df
+            expected_days = self._estimate_trading_days(start_date, end_date)
+            actual_days = len(df)
 
-        df = self._fetch_fund_nav_from_api(fund_code, start_date, end_date)
-        if df is not None and not df.empty:
-            self._save_fund_nav_to_database(fund_code, df)
-            logger.info(f"从 API 获取并存储 {fund_code}: {len(df)} 条")
-            return df
+            if actual_days >= expected_days * 0.8:
+                logger.info(f"从数据库获取 {fund_code}: {len(df)} 条（基本完整）")
+                return df
 
-        df = self._fetch_from_api(fund_code, start_date, end_date, "tushare")
-        if df is not None and not df.empty:
-            self._save_to_database(fund_code, df, "tushare", start_date, end_date)
-            logger.info(f"从 API 获取并存储 {fund_code}: {len(df)} 条")
-            return df
+            if actual_days < expected_days * 0.8:
+                logger.info(f"从数据库获取 {fund_code}: {len(df)} 条，缺失较多，从 Tushare 补充")
+
+                df_tushare = self._fetch_fund_nav_from_api(fund_code, start_date, end_date)
+                if df_tushare is None or df_tushare.empty:
+                    df_tushare = self._fetch_from_tushare_with_retry(fund_code, start_date, end_date)
+
+                if df_tushare is not None and not df_tushare.empty:
+                    self._save_to_database(fund_code, df_tushare)
+                    logger.info(f"从 Tushare 补充后共 {len(df_tushare)} 条")
+                    return df_tushare
+
+        df_tushare = self._fetch_fund_nav_from_api(fund_code, start_date, end_date)
+        if df_tushare is None or df_tushare.empty:
+            df_tushare = self._fetch_from_tushare_with_retry(fund_code, start_date, end_date)
+
+        if df_tushare is not None and not df_tushare.empty:
+            self._save_to_database(fund_code, df_tushare)
+            logger.info(f"从 Tushare 获取 {fund_code}: {len(df_tushare)} 条")
+            return df_tushare
 
         logger.error(f"所有数据源都无法获取 {fund_code}")
         return None
 
-    def get_fund_nav(self, fund_code: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
-        """获取基金净值数据（get_fund_data 的别名）"""
-        return self.get_fund_data(fund_code, start_date, end_date)
+    def _estimate_trading_days(self, start_date: str, end_date: str) -> int:
+        """估算交易日数量（约65%的日历天数）"""
+        start = datetime.strptime(start_date, '%Y%m%d')
+        end = datetime.strptime(end_date, '%Y%m%d')
+        days = (end - start).days + 1
+        return int(days * 0.65)
 
-    def _query_local(
+    def _find_missing_dates(
+        self,
+        df: pd.DataFrame,
+        start_date: str,
+        end_date: str
+    ) -> List[str]:
+        """查找缺失的日期"""
+        if df is None or df.empty:
+            return [start_date, end_date]
+
+        existing_dates = set(df['date'].astype(str).str[:8].tolist())
+
+        start = datetime.strptime(start_date, '%Y%m%d')
+        end = datetime.strptime(end_date, '%Y%m%d')
+        all_dates = []
+        current = start
+        while current <= end:
+            all_dates.append(current.strftime('%Y%m%d'))
+            current += timedelta(days=1)
+
+        return [d for d in all_dates if d not in existing_dates]
+
+    def _query_database(
         self,
         fund_code: str,
         start_dt: datetime,
-        end_dt: datetime,
-        source: str
+        end_dt: datetime
     ) -> Optional[pd.DataFrame]:
-        """从本地数据库查询"""
+        """查询数据库（fund_nav 或 daily_kline）"""
         if not self._db_available:
             return None
 
-        cache_key = CacheKeys.kline_range(fund_code, str(start_dt.strftime('%Y%m%d')), 
-                                           str(end_dt.strftime('%Y%m%d')), source)
-        
+        cache_key = f"fund:{fund_code}:{start_dt.strftime('%Y%m%d')}:{end_dt.strftime('%Y%m%d')}"
+
         if self.cache:
             cached = self.cache.get(cache_key)
             if cached is not None:
                 return pd.DataFrame(cached)
 
-        try:
-            with get_db_session() as session:
-                Model = self._get_kline_model(source)
-                klines = session.query(Model).filter(
-                    Model.code == fund_code,
-                    Model.trade_date >= start_dt.date(),
-                    Model.trade_date <= end_dt.date()
-                ).order_by(Model.trade_date).all()
+        df_fund = self._query_fund_nav_local(fund_code, start_dt, end_dt)
+        if df_fund is not None and not df_fund.empty:
+            df = df_fund
+        else:
+            df_stock = self._query_local(fund_code, start_dt, end_dt, "tushare")
+            df = df_stock
 
-                if klines:
-                    df = pd.DataFrame([k.to_dict() for k in klines])
-                    if self.cache:
-                        self.cache.set(cache_key, df.to_dict('records'), expire=3600)
-                    return df
-        except Exception as e:
-            logger.warning(f"查询本地数据库({source})失败: {e}")
+        if df is not None and not df.empty:
+            if self.cache:
+                self.cache.set(cache_key, df.to_dict('records'), expire=3600)
+            return df
+
         return None
+
+    def _save_to_database(self, fund_code: str, df: pd.DataFrame):
+        """保存数据到数据库"""
+        if not self._db_available or df is None or df.empty:
+            return
+
+        try:
+            is_fund = 'accum_nav' in df.columns
+
+            if is_fund:
+                self._save_fund_nav_to_database(fund_code, df)
+            else:
+                self._save_to_database_legacy(fund_code, df, "tushare", None, None)
+
+            cache_key = f"fund:{fund_code}"
+            if self.cache:
+                self.cache.delete(cache_key)
+
+        except Exception as e:
+            logger.warning(f"保存数据失败: {e}")
 
     def _query_fund_nav_local(
         self,
@@ -326,9 +373,9 @@ class FundDataSource:
         else:
             return "其他错误"
 
-    def _save_to_database(self, fund_code: str, df: pd.DataFrame, source: str, 
+    def _save_to_database_legacy(self, fund_code: str, df: pd.DataFrame, source: str, 
                           start_date: str = None, end_date: str = None):
-        """保存数据到本地数据库"""
+        """保存数据到本地数据库（legacy）"""
         if not self._db_available or df is None or df.empty:
             return
 
