@@ -69,7 +69,9 @@ project/
 │   │   └── tiered_cache.py   # 分级缓存 (L1内存 + L2 Redis)
 │   └── sync/
 │       ├── free_sync.py      # 免费数据同步 (增量更新)
-│       └── scheduler.py       # 定时任务调度器
+│       ├── scheduler.py      # 定时任务调度器
+│       ├── auto_sync.py      # 自动同步任务 (启动+定时)
+│       └── tushare_sync.py   # Tushare 数据同步
 ├── backtest/                 # 回测逻辑
 │   ├── dca_backtest.py       # DCA 回测引擎
 │   ├── visualization.py        # 可视化
@@ -125,6 +127,7 @@ project/
 | `ComparisonAnalyzer` | backtest/analysis.py | 多策略对比分析 |
 | `ProgressTracker` | backtest/progress.py | 回测进度追踪 |
 | `FreeDataSync` | data_source/sync/free_sync.py | 增量数据同步 |
+| `Scheduler` | data_source/sync/scheduler.py | 定时任务调度器 |
 | `TieredCache` | data_source/cache/tiered_cache.py | 分级缓存 |
 | `TaskManager` | tasks/task_manager.py | 任务管理 |
 | `FundDataSource` | data_source/fund_data_source.py | 数据源 |
@@ -149,6 +152,36 @@ sync.sync_daily_kline_batch(codes=['600036', '000001'], incremental=True)
 
 # 同步自选股
 sync.sync_watchlist_stocks(watchlist_codes=['600036', '000001'])
+```
+
+### 自动数据同步（Scheduler）
+启动 app.py 后会自动启用定时同步任务：
+
+| 任务 | 时间 | 说明 |
+|------|------|------|
+| 启动同步 | 每次启动时 | 自动同步最近 7 天缺失的数据 |
+| 早盘同步 | 8:30 | 检测并补齐最近 3 天数据 |
+| 收盘同步 | 16:00 | 检测并补齐最近 3 天数据 |
+| 自选股同步 | 每 30 分钟 | 同步自选股最近 3 天数据 |
+
+**侧边栏显示**: 在 Web 界面侧边栏可以看到：
+- 调度器运行状态
+- 各任务上次执行时间
+- 手动触发同步按钮
+- 调度详情
+
+**手动触发**:
+```python
+from data_source.sync.auto_sync import sync_on_startup, sync_incremental_task, sync_watchlist_task
+
+# 启动时同步
+sync_on_startup()
+
+# 增量同步
+sync_incremental_task()
+
+# 自选股同步
+sync_watchlist_task()
 ```
 
 ### 基金净值同步

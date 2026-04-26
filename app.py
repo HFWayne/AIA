@@ -7,6 +7,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 import logging
+import threading
 
 from backtest import FundBacktester, BacktestConfig
 from backtest.dca_backtest import BacktestResult
@@ -19,8 +20,107 @@ from backtest.page_task import render_task_manager
 from backtest.page_diagnostic import render_diagnostic_page
 from i18n import t, render_language_selector, get_locale
 from data_source.logger import setup_logger
+from data_source.sync.scheduler import get_scheduler
+from data_source.sync.auto_sync import (
+    sync_on_startup,
+    sync_watchlist_task,
+    sync_incremental_task,
+)
+from datetime import time as dt_time
 
 logger = setup_logger('app')
+
+_scheduler_initialized = False
+
+
+def render_sync_status():
+    """渲染数据同步状态区块"""
+    global _scheduler_initialized
+
+    if 'scheduler' not in st.session_state:
+        st.session_state['scheduler'] = get_scheduler()
+
+    scheduler = st.session_state['scheduler']
+
+    if not _scheduler_initialized:
+        scheduler.add_daily_task(
+            "daily_morning_sync",
+            dt_time(8, 30),
+            sync_incremental_task
+        )
+        scheduler.add_daily_task(
+            "daily_afternoon_sync",
+            dt_time(16, 0),
+            sync_incremental_task
+        )
+        scheduler.add_interval_task(
+            "watchlist_interval_sync",
+            30,
+            sync_watchlist_task
+        )
+        scheduler.start()
+
+        # 后台线程执行启动同步，不阻塞 UI
+        def background_sync():
+            try:
+                sync_on_startup()
+            except Exception as e:
+                logger.error(f"启动同步失败: {e}")
+
+        sync_thread = threading.Thread(target=background_sync, daemon=True)
+        sync_thread.start()
+
+        _scheduler_initialized = True
+
+    status = scheduler.get_status()
+
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        if status['running']:
+            st.success("🟢 运行中")
+        else:
+            st.error("🔴 已停止")
+    with col2:
+        if st.button("🔄 立即同步", key="sync_now", help="立即触发增量同步"):
+            with st.spinner("正在同步..."):
+                result = sync_incremental_task()
+                if result:
+                    st.success(f"✅ 同步完成: {result}")
+                else:
+                    st.error("❌ 同步失败")
+
+    st.markdown("---")
+    st.markdown("**📅 定时任务**")
+
+    for task in status['tasks']:
+        task_type = task['type']
+        task_id = task['id']
+        next_run = task.get('next_run')
+        last_run = task.get('last_run')
+
+        if task_type == 'daily':
+            task_name = "早盘同步 (8:30)" if "morning" in task_id else "收盘同步 (16:00)"
+        else:
+            task_name = "自选股同步 (30分钟)"
+
+        col1, col2, col3 = st.columns([2, 2, 1])
+        with col1:
+            st.write(f"• {task_name}")
+        with col2:
+            if last_run:
+                from datetime import datetime as dt
+                last_dt = dt.fromisoformat(last_run)
+                st.caption(f"上次: {last_dt.strftime('%H:%M:%S')}")
+            else:
+                st.caption("未执行过")
+        with col3:
+            if st.button("▶️", key=f"run_{task_id}", help=f"立即执行 {task_name}"):
+                with st.spinner(f"正在执行 {task_name}..."):
+                    scheduler.run_task_now(task_id)
+                    st.rerun()
+
+    with st.expander("📊 调度详情"):
+        st.json(status)
 
 
 def clear_all_data():
@@ -444,8 +544,12 @@ def sidebar_params():
     with st.sidebar.expander("🗑️ 系统工具", expanded=False):
         if st.button("清空所有数据", help="清空 MySQL 和 Redis 中的所有数据（谨慎操作）"):
             clear_all_data()
-    
+
     st.sidebar.markdown("---")
+
+    with st.sidebar.expander("📡 数据同步状态", expanded=True):
+        render_sync_status()
+
     with st.sidebar.container():
         render_language_selector()
     
