@@ -145,6 +145,10 @@ class FundDataSource:
         logger.error(f"所有数据源都无法获取 {fund_code}")
         return None
 
+    def get_fund_nav(self, fund_code: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
+        """获取基金净值数据（get_fund_data 的别名）"""
+        return self.get_fund_data(fund_code, start_date, end_date)
+
     def _estimate_trading_days(self, start_date: str, end_date: str) -> int:
         """估算交易日数量（约65%的日历天数）"""
         start = datetime.strptime(start_date, '%Y%m%d')
