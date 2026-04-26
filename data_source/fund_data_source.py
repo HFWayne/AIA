@@ -105,40 +105,34 @@ class FundDataSource:
     ) -> Optional[pd.DataFrame]:
         """获取基金数据，支持回退机制
 
-        1. 自动识别代码类型（股票/ETF/场外基金）
-        2. 根据类型从不同表查询
+        1. 自动尝试 fund_nav 表（场外基金）
+        2. 回退到 daily_kline 表（股票/ETF）
         3. 未命中则从 API 获取
         """
-        code_type = self._get_code_type(fund_code)
         start_dt = datetime.strptime(start_date, '%Y%m%d') if start_date else datetime(2000, 1, 1)
         end_dt = datetime.strptime(end_date, '%Y%m%d') if end_date else datetime.now()
 
-        if code_type == CODE_TYPE_FUND:
-            df = self._query_fund_nav_local(fund_code, start_dt, end_dt)
-            if df is not None and not df.empty:
-                logger.info(f"从本地(fund_nav)获取 {fund_code}: {len(df)} 条")
-                return df
+        df = self._query_fund_nav_local(fund_code, start_dt, end_dt)
+        if df is not None and not df.empty:
+            logger.info(f"从 fund_nav 获取 {fund_code}: {len(df)} 条")
+            return df
 
-            df = self._fetch_fund_nav_from_api(fund_code, start_date, end_date)
-            if df is not None and not df.empty:
-                self._save_fund_nav_to_database(fund_code, df)
-                logger.info(f"从 API 获取并存储 {fund_code}: {len(df)} 条")
-                return df
-        else:
-            sources = self._get_source_priority()
+        df = self._query_local(fund_code, start_dt, end_dt, "tushare")
+        if df is not None and not df.empty:
+            logger.info(f"从 daily_kline 获取 {fund_code}: {len(df)} 条")
+            return df
 
-            for source in sources:
-                df = self._query_local(fund_code, start_dt, end_dt, source)
-                if df is not None and not df.empty:
-                    logger.info(f"从本地数据库({source})获取 {fund_code}: {len(df)} 条")
-                    return df
+        df = self._fetch_fund_nav_from_api(fund_code, start_date, end_date)
+        if df is not None and not df.empty:
+            self._save_fund_nav_to_database(fund_code, df)
+            logger.info(f"从 API 获取并存储 {fund_code}: {len(df)} 条")
+            return df
 
-            for source in sources:
-                df = self._fetch_from_api(fund_code, start_date, end_date, source)
-                if df is not None and not df.empty:
-                    self._save_to_database(fund_code, df, source, start_date, end_date)
-                    logger.info(f"从 API({source})获取并存储 {fund_code}: {len(df)} 条")
-                    return df
+        df = self._fetch_from_api(fund_code, start_date, end_date, "tushare")
+        if df is not None and not df.empty:
+            self._save_to_database(fund_code, df, "tushare", start_date, end_date)
+            logger.info(f"从 API 获取并存储 {fund_code}: {len(df)} 条")
+            return df
 
         logger.error(f"所有数据源都无法获取 {fund_code}")
         return None
