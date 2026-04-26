@@ -44,6 +44,13 @@ class FundDataSource:
         self._init_tushare()
         self._db_available = self._check_db() if ENABLE_MYSQL else False
 
+        # Ensure all required methods/attributes exist
+        if not hasattr(self, '_query_fund_nav_local'):
+            # Define minimal stub (should not happen with full code)
+            def _query_fund_nav_local(self, fund_code, start_dt, end_dt):
+                return None
+            self._query_fund_nav_local = _query_fund_nav_local.__get__(self, type(self))
+
     def _check_db(self) -> bool:
         """检查数据库是否可用"""
         try:
@@ -151,6 +158,77 @@ class FundDataSource:
     def get_fund_nav(self, fund_code: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
         """获取基金净值数据（get_fund_data 的别名）"""
         return self.get_fund_data(fund_code, start_date, end_date)
+
+    def _save_fund_nav_to_database(self, fund_code: str, df: pd.DataFrame):
+        """保存基金净值到 fund_nav 表"""
+        if not self._db_available or df is None or df.empty:
+            return
+        try:
+            rows = []
+            for _, row in df.iterrows():
+                nav_date = row['nav_date'] if 'nav_date' in row else row.get('date')
+                if isinstance(nav_date, str):
+                    nav_date = datetime.strptime(nav_date[:8], '%Y%m%d').date()
+                elif isinstance(nav_date, pd.Timestamp):
+                    nav_date = nav_date.date()
+                rows.append({
+                    'code': fund_code,
+                    'ts_code': f"{fund_code}.OF",
+                    'nav_date': nav_date,
+                    'unit_nav': float(row.get('unit_nav', 0)),
+                    'accum_nav': float(row.get('accum_nav', 0)),
+                    'update_flag': 'N'
+                })
+            if rows:
+                from sqlalchemy import text
+                with get_db_session() as session:
+                    for rec in rows:
+                        session.execute(text("""
+                            INSERT INTO fund_nav (code, ts_code, nav_date, unit_nav, accum_nav, update_flag)
+                            VALUES (:code, :ts_code, :nav_date, :unit_nav, :accum_nav, :update_flag)
+                            ON DUPLICATE KEY UPDATE unit_nav=VALUES(unit_nav)
+                        """), rec)
+                    session.commit()
+        except Exception as e:
+            logger.warning(f"保存 fund_nav 失败: {e}")
+
+    def _fetch_fund_nav_from_api(self, fund_code: str, start_date: str, end_date: str):
+        """从 Tushare pro.fund_nav() 获取数据"""
+        if self.pro is None:
+            return None
+        for retry in range(self.max_retries):
+            try:
+                self._apply_delay()
+                df = self.pro.fund_nav(ts_code=f"{fund_code}.OF", start_date=start_date, end_date=end_date)
+                if df is None or df.empty:
+                    continue
+                result = pd.DataFrame()
+                result['date'] = df['nav_date'].astype(str)
+                result['nav'] = df['unit_nav'].astype(float)
+                return result.sort_values('date').reset_index(drop=True)
+            except Exception as e:
+                logger.warning(f"获取基金 {fund_code} 失败 (retry {retry+1}): {e}")
+                time.sleep(1)
+        return None
+
+    def _fetch_from_tushare_with_retry(self, fund_code: str, start_date: str, end_date: str):
+        """从 Tushare daily API 获取数据，带重试"""
+        for retry in range(self.max_retries):
+            try:
+                self._apply_delay()
+                exchange = "SH" if fund_code.startswith(("5", "6", "9")) else "SZ"
+                ts_code = f"{fund_code}.{exchange}"
+                df = self.pro.daily(ts_code=ts_code, start_date=start_date, end_date=end_date, adj='qfq')
+                if df is None or df.empty:
+                    continue
+                result = pd.DataFrame()
+                result['date'] = pd.to_datetime(df['trade_date']).dt.strftime('%Y%m%d')
+                result['nav'] = df['close'].astype(float)
+                return result.sort_values('date').reset_index(drop=True)
+            except Exception as e:
+                logger.warning(f"获取 {fund_code} 失败 (retry {retry+1}): {e}")
+                time.sleep(1)
+        return None
 
     def _estimate_trading_days(self, start_date: str, end_date: str) -> int:
         """估算交易日数量（约65%的日历天数）"""
