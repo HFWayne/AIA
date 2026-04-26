@@ -875,21 +875,31 @@ def render_strategy_params_form(key_prefix: str = "strategy"):
 def page_single_backtest_tab1(sd, ed, amt, freq, day_of_month, day_of_week, ds):
     """单股票回测 Tab 1: 单策略回测"""
     from backtest.strategy_manager import StrategyManager
-    
+
     sm = StrategyManager()
-    
+
+    current_start = str(sd)
+    current_end = str(ed)
+
+    last_start = st.session_state.get('last_start_date', '')
+    last_end = st.session_state.get('last_end_date', '')
+
+    if last_start != current_start or last_end != current_end:
+        if 'current_result' in st.session_state:
+            del st.session_state['current_result']
+
     col1, col2 = st.columns([1, 2.5])
-    
+
     with col1:
         st.markdown("""
         <div class="card">
             <h4>股票选择</h4>
         </div>
         """, unsafe_allow_html=True)
-        
+
         fund_code = st.text_input("股票代码", value="600036", key="single_fund_code")
         fund_name_input = st.text_input("股票名称", value="", key="single_fund_name", help="留空自动获取")
-        
+
         if not fund_name_input:
             fund_name_input = get_fund_name(fund_code)
         
