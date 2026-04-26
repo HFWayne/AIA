@@ -143,15 +143,15 @@ class TushareSync:
         df = self._retry_get(self.pro.daily, trade_date=trade_date)
         if df is None or df.empty:
             return 0
-        
+
         records = 0
         klines_data = []
-        
+
         for _, row in df.iterrows():
             ts_code = row['ts_code']
             code = ts_code.split('.')[0]
             trade_date_dt = datetime.strptime(str(row['trade_date']), '%Y%m%d').date()
-            
+
             klines_data.append({
                 'code': code,
                 'trade_date': trade_date_dt,
@@ -165,16 +165,20 @@ class TushareSync:
                 'turn': row.get('turnover', 0),
                 'pct_chg': row.get('pct_chg', 0) / 100 if row.get('pct_chg') else 0
             })
-        
+
         if klines_data:
             df_kline = pd.DataFrame(klines_data)
-            df_kline.to_sql('daily_kline_tushare', get_engine(), if_exists='append', index=False, chunksize=5000)
+
+            engine = get_engine()
+            df_kline.to_sql('daily_kline_tushare', engine, if_exists='append', index=False, chunksize=5000)
+
             records = len(df_kline)
-            
+
             for code in df_kline['code'].unique():
                 cache_key = CacheKeys.kline_range(code, trade_date, trade_date, source="tushare")
-                self.cache.delete(cache_key)
-        
+                if self.cache:
+                    self.cache.delete(cache_key)
+
         return records
 
     def sync_daily_kline(self, code: str, start_date: str = None, end_date: str = None) -> int:
@@ -347,23 +351,24 @@ class TushareSync:
     def get_missing_trade_dates(self, start_date: str = None, end_date: str = None) -> List[str]:
         """检测缺失的交易日，返回需要补齐的日期列表"""
         try:
-            with get_db_session() as session:
-                existing_dates = session.query(DailyKlineTushare.trade_date).distinct().all()
-                existing_set = set(str(d[0]) for d in existing_dates)
-            
             end = end_date or datetime.now().strftime('%Y%m%d')
             start = start_date or "20000101"
-            
+
             all_trade_dates = set(self.get_trade_cal(start, end))
-            missing_dates = sorted(all_trade_dates - existing_set)
-            
+
+            with get_db_session() as session:
+                existing_result = session.query(DailyKlineTushare.trade_date).distinct().all()
+                existing_dates = set(str(d[0]) for d in existing_result)
+
+            missing_dates = sorted(all_trade_dates - existing_dates)
+
             if missing_dates:
                 logger.info(f"检测到 {len(missing_dates)} 天缺失数据需要补齐")
                 if len(missing_dates) <= 10:
                     logger.info(f"缺失日期: {missing_dates}")
                 else:
                     logger.info(f"缺失日期: {missing_dates[:5]} ... {missing_dates[-5:]}")
-            
+
             return missing_dates
         except Exception as e:
             logger.warning(f"检测缺失日期失败: {e}")
