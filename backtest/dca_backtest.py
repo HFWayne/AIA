@@ -246,12 +246,14 @@ class DCABacktest:
             current_nav = row["nav"]
             is_trade_day = current_date in trade_dates_set
 
-            prev_nav: Optional[float] = (
-                nav_data.iloc[idx - 1]["nav"] if idx > 0 else None
-            )
+            try:
+                prev_nav: Optional[float] = nav_data.iloc[idx - 1]["nav"]
+            except IndexError:
+                prev_nav = None
+                logger.warning(f"索引越界: idx={idx}, 使用 None")
 
             current_value = holdings * current_nav
-            
+
             # Calculate return based on current invested amount (not lost money)
             if holdings == 0 and invested_for_return > 0:
                 # After stop-loss clear, reset invested_for_return to avoid showing -100%
@@ -373,7 +375,11 @@ class DCABacktest:
                         buy_amount += params.yield_boost_amount
 
                     invest_amount = buy_amount
-                    buy_shares = buy_amount / current_nav
+                    if current_nav > 0:
+                        buy_shares = buy_amount / current_nav
+                    else:
+                        buy_shares = 0.0
+                        logger.warning(f"零净值，跳过买入: {params.fund_code}")
                     holdings += buy_shares
                     total_invested += buy_amount
                     invested_for_return += buy_amount

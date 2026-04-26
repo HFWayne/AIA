@@ -103,35 +103,38 @@ class FundDataSource:
         start_date: str,
         end_date: str
     ) -> Optional[pd.DataFrame]:
-        """三级缓存获取数据：
-        1. Redis 缓存（快速返回）
-        2. MySQL 数据库（检查完整性，不完整则补充）
-        3. Tushare API（最终数据源）
+        """获取基金数据，支持回退机制
+
+        1. 自动尝试 fund_nav 表（场外基金）
+        2. 回退到 daily_kline 表（股票/ETF）
+        3. 未命中则从 API 获取
         """
         start_dt = datetime.strptime(start_date, '%Y%m%d') if start_date else datetime(2000, 1, 1)
         end_dt = datetime.strptime(end_date, '%Y%m%d') if end_date else datetime.now()
 
-        df = self._query_database(fund_code, start_dt, end_dt)
-
+        df = self._query_fund_nav_local(fund_code, start_dt, end_dt)
         if df is not None and not df.empty:
+            logger.info(f"从 fund_nav 获取 {fund_code}: {len(df)} 条")
+            # 检查是否完整，不完整则用 API 数据补充
             expected_days = self._estimate_trading_days(start_date, end_date)
-            actual_days = len(df)
-
-            if actual_days >= expected_days * 0.8:
-                logger.info(f"从数据库获取 {fund_code}: {len(df)} 条（基本完整）")
-                return df
-
-            if actual_days < expected_days * 0.8:
-                logger.info(f"从数据库获取 {fund_code}: {len(df)} 条，缺失较多，从 Tushare 补充")
-
+            if len(df) < expected_days * 0.8:
+                logger.info(f"基金数据不完整，尝试补充")
                 df_tushare = self._fetch_fund_nav_from_api(fund_code, start_date, end_date)
                 if df_tushare is None or df_tushare.empty:
                     df_tushare = self._fetch_from_tushare_with_retry(fund_code, start_date, end_date)
-
                 if df_tushare is not None and not df_tushare.empty:
-                    self._save_to_database(fund_code, df_tushare)
-                    logger.info(f"从 Tushare 补充后共 {len(df_tushare)} 条")
-                    return df_tushare
+                    df = pd.concat([df, df_tushare], ignore_index=True)
+                    df = df.drop_duplicates(subset=['date'], keep='last')
+                    df = df.sort_values('date').reset_index(drop=True)
+                    self._save_to_database(fund_code, df)
+                    logger.info(f"补充后共 {len(df)} 条")
+                    return df
+            return df
+
+        df = self._query_local(fund_code, start_dt, end_dt, "tushare")
+        if df is not None and not df.empty:
+            logger.info(f"从 daily_kline 获取 {fund_code}: {len(df)} 条")
+            return df
 
         df_tushare = self._fetch_fund_nav_from_api(fund_code, start_date, end_date)
         if df_tushare is None or df_tushare.empty:
@@ -215,195 +218,69 @@ class FundDataSource:
             return
 
         try:
-            is_fund = 'accum_nav' in df.columns
+            # 不区分基金和股票，统一处理
+            rows = []
+            for _, row in df.iterrows():
+                val_nav = row.get('nav', 0) if 'nav' in row else row.get('unit_nav', 0)
+                val_accum = row.get('accum_nav', 0) if 'accum_nav' in row else (row.get('accum_nav', 0) if 'accum_nav' in row else val_nav)
 
-            if is_fund:
-                self._save_fund_nav_to_database(fund_code, df)
-            else:
-                self._save_to_database_legacy(fund_code, df, "tushare", None, None)
+                rows.append({
+                    'code': fund_code,
+                    'trade_date': row.get('date', row.get('nav_date')),
+                    'open': float(row.get('open', val_nav)),
+                    'high': float(row.get('high', val_nav)),
+                    'low': float(row.get('low', val_nav)),
+                    'close': float(row.get('close', val_nav)),
+                    'volume': float(row.get('volume', 0)),
+                    'amount': float(row.get('amount', 0)),
+                    'adj_close': float(val_accum),
+                    'turn': float(row.get('turn', 0)),
+                    'pct_chg': float(row.get('pct_chg', 0)),
+                })
 
-            cache_key = f"fund:{fund_code}"
+            if rows:
+                self._save_to_database_legacy(fund_code, pd.DataFrame(rows), "fund", start_date, end_date)
+
+            cache_key_all = f"fund_nav:{fund_code}:*"
             if self.cache:
-                self.cache.delete(cache_key)
+                try:
+                    for key in self.cache.redis.keys(cache_key_all):
+                        self.cache.redis.delete(key)
+                except Exception:
+                    pass
 
         except Exception as e:
             logger.warning(f"保存数据失败: {e}")
 
-    def _query_fund_nav_local(
-        self,
-        fund_code: str,
-        start_dt: datetime,
-        end_dt: datetime
-    ) -> Optional[pd.DataFrame]:
-        """从 fund_nav 表查询场外基金数据"""
-        if not self._db_available:
-            return None
-
-        cache_key = f"fund_nav:{fund_code}:{start_dt.strftime('%Y%m%d')}:{end_dt.strftime('%Y%m%d')}"
-
-        if self.cache:
-            cached = self.cache.get(cache_key)
-            if cached is not None:
-                return pd.DataFrame(cached)
-
-        try:
-            with get_db_session() as session:
-                navs = session.query(FundNav).filter(
-                    FundNav.code == fund_code,
-                    FundNav.nav_date >= start_dt.date(),
-                    FundNav.nav_date <= end_dt.date()
-                ).order_by(FundNav.nav_date).all()
-
-                if navs:
-                    df = pd.DataFrame([{
-                        'date': n.nav_date.strftime('%Y%m%d') if hasattr(n.nav_date, 'strftime') else str(n.nav_date),
-                        'nav': float(n.unit_nav) if n.unit_nav else 0.0,
-                        'accum_nav': float(n.accum_nav) if n.accum_nav else 0.0,
-                    } for n in navs])
-                    if self.cache:
-                        self.cache.set(cache_key, df.to_dict('records'), expire=3600)
-                    return df
-        except Exception as e:
-            logger.warning(f"查询 fund_nav 表失败: {e}")
-        return None
-
-    def _fetch_fund_nav_from_api(
-        self,
-        fund_code: str,
-        start_date: str,
-        end_date: str
-    ) -> Optional[pd.DataFrame]:
-        """从 tushare pro.fund_nav() 获取场外基金数据"""
-        if self.pro is None:
-            logger.warning("tushare pro API 未初始化")
-            return None
-
-        for retry in range(self.max_retries):
-            try:
-                self._apply_delay()
-                df = self.pro.fund_nav(
-                    ts_code=f"{fund_code}.OF",
-                    start_date=start_date,
-                    end_date=end_date
-                )
-
-                if df is None or df.empty:
-                    continue
-
-                result = pd.DataFrame()
-                result['date'] = df['nav_date'].astype(str)
-                result['nav'] = df['unit_nav'].astype(float)
-                result['accum_nav'] = df['accum_nav'].astype(float)
-
-                return result.sort_values('date').reset_index(drop=True)
-
-            except Exception as e:
-                logger.warning(f"获取场外基金 {fund_code} 失败 (retry {retry+1}): {e}")
-                time.sleep(1)
-
-        return None
-
-    def _save_fund_nav_to_database(self, fund_code: str, df: pd.DataFrame):
-        """保存场外基金数据到 fund_nav 表"""
-        if not self._db_available or df is None or df.empty:
-            return
-
-        try:
-            with get_db_session() as session:
-                for _, row in df.iterrows():
-                    nav_date = row['date']
-                    if isinstance(nav_date, str):
-                        nav_date = datetime.strptime(nav_date[:8], '%Y%m%d').date()
-
-                    sql = text("""
-                        INSERT IGNORE INTO fund_nav
-                        (code, ts_code, nav_date, unit_nav, accum_nav, update_flag)
-                        VALUES (:code, :ts_code, :nav_date, :unit_nav, :accum_nav, :update_flag)
-                    """)
-                    session.execute(sql, {
-                        'code': fund_code,
-                        'ts_code': f"{fund_code}.OF",
-                        'nav_date': nav_date,
-                        'unit_nav': float(row.get('nav', 0)),
-                        'accum_nav': float(row.get('accum_nav', 0)),
-                        'update_flag': 'N'
-                    })
-
-            cache_key = f"fund_nav:{fund_code}"
-            if self.cache:
-                self.cache.delete(cache_key)
-
-        except Exception as e:
-            logger.warning(f"保存 fund_nav 失败: {e}")
-
-    def _fetch_from_api(
-        self,
-        fund_code: str,
-        start_date: str,
-        end_date: str,
-        source: str
-    ) -> Optional[pd.DataFrame]:
-        """从 API 获取数据，带重试"""
-        return self._fetch_from_tushare_with_retry(fund_code, start_date, end_date)
-
-    def _fetch_from_tushare_with_retry(
-        self,
-        fund_code: str,
-        start_date: str,
-        end_date: str
-    ) -> Optional[pd.DataFrame]:
-        """从 Tushare 获取数据，带重试"""
-        for retry in range(self.max_retries):
-            try:
-                self._apply_delay()
-                return self._get_fund_from_tushare(fund_code, start_date, end_date)
-            except Exception as e:
-                logger.warning(f"Tushare 获取 {fund_code} 失败 (retry {retry+1}): {e}")
-                if retry < self.max_retries - 1:
-                    time.sleep(1)
-        return None
-
-    def _get_error_type(self, error_msg: str) -> str:
-        """识别错误类型"""
-        error_msg_lower = error_msg.lower()
-        if "connection" in error_msg_lower or "remote" in error_msg_lower:
-            return "连接被断开"
-        elif "timeout" in error_msg_lower or "timed out" in error_msg_lower:
-            return "请求超时"
-        elif "403" in error_msg_lower or "forbidden" in error_msg_lower:
-            return "IP被封禁"
-        elif "429" in error_msg_lower or "too many" in error_msg_lower:
-            return "请求过于频繁"
-        else:
-            return "其他错误"
-
     def _save_to_database_legacy(self, fund_code: str, df: pd.DataFrame, source: str, 
                           start_date: str = None, end_date: str = None):
-        """保存数据到本地数据库（legacy）"""
+        """保存数据到本地数据库"""
         if not self._db_available or df is None or df.empty:
             return
 
         try:
             table_name = self._get_table_name(source)
             klines_data = []
-            
+
             for _, row in df.iterrows():
-                trade_date = row['date']
+                trade_date = row.get('trade_date') or row.get('date') or row.get('nav_date')
                 if isinstance(trade_date, str):
                     trade_date = datetime.strptime(trade_date[:8], '%Y%m%d').date()
                 elif isinstance(trade_date, pd.Timestamp):
                     trade_date = trade_date.date()
-                
+                elif isinstance(trade_date, datetime):
+                    trade_date = trade_date.date()
+
                 klines_data.append({
                     'code': fund_code,
                     'trade_date': trade_date,
-                    'open': float(row.get('open', row.get('nav', 0))),
-                    'high': float(row.get('high', row.get('nav', 0))),
-                    'low': float(row.get('low', row.get('nav', 0))),
-                    'close': float(row.get('nav', row.get('close', 0))),
+                    'open': float(row.get('open', val_nav)),
+                    'high': float(row.get('high', val_nav)),
+                    'low': float(row.get('low', val_nav)),
+                    'close': float(row.get('close', val_nav)),
                     'volume': float(row.get('volume', 0)),
                     'amount': float(row.get('amount', 0)),
-                    'adj_close': float(row.get('nav', row.get('close', 0))),
+                    'adj_close': float(val_nav),
                     'turn': 0.0,
                     'pct_chg': 0.0,
                 })
@@ -411,19 +288,23 @@ class FundDataSource:
             with get_db_session() as session:
                 for kline in klines_data:
                     sql = text(f"""
-                        INSERT IGNORE INTO {table_name} 
+                        INSERT IGNORE INTO {table_name}
                         (code, trade_date, open, high, low, close, volume, amount, adj_close, turn, pct_chg)
                         VALUES (:code, :trade_date, :open, :high, :low, :close, :volume, :amount, :adj_close, :turn, :pct_chg)
                     """)
                     session.execute(sql, kline)
+                session.commit()
 
             cache_key = CacheKeys.kline_range(fund_code, 
-                                               df['date'].min()[:8] if len(df) > 0 else start_date,
-                                               df['date'].max()[:8] if len(df) > 0 else end_date, 
+                                               df['date'].min()[:8] if 'date' in df.columns and len(df) > 0 else start_date or '20000101',
+                                               df['date'].max()[:8] if 'date' in df.columns and len(df) > 0 else end_date or '20261231',
                                                source)
             if self.cache:
-                self.cache.delete(cache_key)
-                
+                try:
+                    self.cache.delete(cache_key)
+                except Exception:
+                    pass
+
         except Exception as e:
             logger.warning(f"保存数据到数据库({source})失败: {e}")
 
