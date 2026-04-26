@@ -20,16 +20,42 @@ from datetime import datetime
 
 
 def get_remaining_funds():
-    """获取待同步的基金列表"""
+    """获取待同步的基金列表（包含已有基金更新）"""
     with get_db_session() as session:
-        all_codes = [f[0] for f in session.query(Stock.code).filter(Stock.stock_type == '基金').all()]
-        synced = set(f[0] for f in session.query(FundNav.code).distinct().all())
-        remaining = [c for c in all_codes if c not in synced]
-    return remaining
+        # 包括 stocks 表中的基金
+        all_codes = set(f[0] for f in session.query(Stock.code).filter(Stock.stock_type == '基金').all())
+        
+        # 也包括 fund_nav 表中已有的基金（有数据但不在 stocks 表）
+        nav_codes = set(f[0] for f in session.query(FundNav.code).distinct().all())
+        
+        # 合并
+        all_codes = all_codes | nav_codes
+        
+        # 检查每只基金最新的数据日期
+        synced = {}
+        for code in all_codes:
+            latest = session.query(FundNav.nav_date).filter(
+                FundNav.code == code
+            ).order_by(FundNav.nav_date.desc()).first()
+            if latest:
+                synced[code] = latest[0]
+            else:
+                synced[code] = None
+        
+        # 需要更新的：数据日期早于 2025-12-01 的
+        missing = []
+        for code, latest_date in synced.items():
+            if latest_date is None or latest_date < datetime(2025, 12, 1).date():
+                missing.append(code)
+        
+    return missing
 
 
-def sync_fund_nav(code: str, start_date: str = '20240401', end_date: str = '20260418') -> int:
+def sync_fund_nav(code: str, start_date: str = '20240401', end_date: str = None) -> int:
     """同步单只基金净值"""
+    if end_date is None:
+        end_date = datetime.now().strftime('%Y%m%d')
+    
     ts = TushareSync()
     ts_code = f'{code}.OF'
     
