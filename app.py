@@ -884,9 +884,18 @@ def page_single_backtest_tab1(sd, ed, amt, freq, day_of_month, day_of_week, ds):
     last_start = st.session_state.get('last_start_date', '')
     last_end = st.session_state.get('last_end_date', '')
 
-    if last_start != current_start or last_end != current_end:
+    logger.info(f"[DEBUG] current: {current_start}-{current_end}, last: {last_start}-{last_end}")
+
+    params_changed = last_start != current_start or last_end != current_end
+    if params_changed:
+        logger.info(f"[DEBUG] 参数变化，清除缓存")
         if 'current_result' in st.session_state:
             del st.session_state['current_result']
+    else:
+        logger.info(f"[DEBUG] 参数未变化，检查是否有缓存: current_result exists = {'current_result' in st.session_state}")
+
+    st.session_state['last_start_date'] = current_start
+    st.session_state['last_end_date'] = current_end
 
     col1, col2 = st.columns([1, 2.5])
 
